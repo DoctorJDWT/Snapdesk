@@ -17,11 +17,8 @@ internal static class WindowResizePaintHelper
     private const uint WmSize = 0x0005;
     private const uint WmSizing = 0x0214;
     private const nuint ResizeFillSubclassId = 0x5A4E;
-    private const uint RdwInvalidate = 0x0001;
-    private const uint RdwErase = 0x0004;
-    private const uint RdwAllChildren = 0x0080;
-    private const uint RdwEraseNow = 0x0200;
     private const int DwmwaWindowCornerPreference = 33;
+    private const int DwmwaVisibleFrameBorderThickness = 37;
     private const int DwmwcpDoNotRound = 1;
 
     private static readonly ConcurrentDictionary<nint, int> FillColors = new();
@@ -81,11 +78,6 @@ internal static class WindowResizePaintHelper
             ApplySquareCorners(hWnd);
             var result = DefSubclassProc(hWnd, uMsg, wParam, lParam);
             FillExpandedClientBands(hWnd, colorRef);
-            _ = RedrawWindow(
-                hWnd,
-                0,
-                0,
-                RdwInvalidate | RdwErase | RdwEraseNow | RdwAllChildren);
             return result;
         }
 
@@ -101,6 +93,9 @@ internal static class WindowResizePaintHelper
 
         var preference = DwmwcpDoNotRound;
         _ = DwmSetWindowAttribute(hwnd, DwmwaWindowCornerPreference, ref preference, sizeof(int));
+
+        var noBorder = 0;
+        _ = DwmSetWindowAttribute(hwnd, DwmwaVisibleFrameBorderThickness, ref noBorder, sizeof(int));
     }
 
     private static void FillClientRect(nint hdc, nint hwnd, int colorRef)
@@ -223,9 +218,6 @@ internal static class WindowResizePaintHelper
 
     [DllImport("user32.dll")]
     private static extern bool GetClientRect(nint hWnd, out NativeRect lpRect);
-
-    [DllImport("user32.dll")]
-    private static extern bool RedrawWindow(nint hWnd, nint lprcUpdate, nint hrgnUpdate, uint flags);
 
     [DllImport("user32.dll")]
     private static extern nint GetDC(nint hWnd);

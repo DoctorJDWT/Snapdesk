@@ -29,6 +29,7 @@ internal static class WindowChromeHelper
     private const int DwmwaWindowCornerPreference = 33;
     private const int DwmwaCaptionColor = 35;
     private const int DwmwaBorderColor = 34;
+    private const int DwmwaVisibleFrameBorderThickness = 37;
     private const int DwmwcpDoNotRound = 1;
 
     [DllImport("dwmapi.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
@@ -85,6 +86,9 @@ internal static class WindowChromeHelper
         var color = dark ? 0x001E1E1E : 0x00F5F7FA; // COLORREF BGR
         _ = DwmSetWindowAttribute(hwnd, DwmwaCaptionColor, ref color, sizeof(int));
         _ = DwmSetWindowAttribute(hwnd, DwmwaBorderColor, ref color, sizeof(int));
+
+        var noBorder = 0;
+        _ = DwmSetWindowAttribute(hwnd, DwmwaVisibleFrameBorderThickness, ref noBorder, sizeof(int));
     }
 
     public static void ApplyDarkNonClientFrame(IntPtr hwnd) => ApplyNonClientFrame(hwnd, dark: true);

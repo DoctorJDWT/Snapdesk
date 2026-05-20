@@ -20,7 +20,7 @@ public sealed partial class MainWindow : Window
 {
     private Grid _contentRoot = null!;
     private Grid _chromeHost = null!;
-    private Grid _titleDragStrip = null!;
+    private Border _dockRevealIndicator = null!;
     private Grid _rootGrid = null!;
     private WindowPositionController? _positionController;
     private ScrollViewer _profileScrollViewer = null!;
@@ -39,10 +39,10 @@ public sealed partial class MainWindow : Window
     private const double RootGridPaddingSide = 8;
     private const double RootGridPaddingTop = 4;
     private const double RootGridPaddingBottom = 12;
-    /// <summary>Thin strip used as WinUI title bar for drag only (keeps scroll/menu working below).</summary>
-    private const double TitleDragStripHeight = 6;
     /// <summary>Extra inset so chips are not clipped by rounding or tight layout.</summary>
     private const int MinChromeSlackPx = 16;
+    private const int AutoHidePeekPixels = 4;
+    private const int DockStateTolerancePixels = 2;
 
     /// <summary>Horizontal slack for preset snap sizing (not the resize floor).</summary>
     private const int PresetWidthSlackPx = 4;
@@ -55,16 +55,13 @@ public sealed partial class MainWindow : Window
     private readonly ProfileService _profiles;
     private readonly SettingsService _settings;
     private readonly PythonBridge _python;
-    private readonly DispatcherTimer _geometryTimer;
+    private readonly WindowGeometryController _geometryController;
     private Dictionary<string, System.Text.Json.JsonElement> _settingsCache = new();
     private bool _busy;
-    private string? _lastSavedGeometry;
     private AppWindow? _appWindow;
     private bool _skipActivationRefresh;
     private bool _gumballLayoutMeasureHooked;
     private bool _rootLoadedHooked;
-    private bool _geometryRestoreAttempted;
-    private bool _geometryReadyForPersist;
     private MenuFlyout? _rootContextFlyout;
     private MenuFlyoutItem? _themeDarkItem;
     private MenuFlyoutItem? _themeLightItem;
@@ -80,8 +77,14 @@ public sealed partial class MainWindow : Window
         _profiles = new ProfileService();
         _settings = new SettingsService();
         _python = new PythonBridge();
-        _geometryTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-        _geometryTimer.Tick += OnGeometryTimerTick;
+        _geometryController = new WindowGeometryController(
+            this,
+            () => AppWindowRef,
+            _settings,
+            () => _settingsCache,
+            settings => _settingsCache = settings,
+            GetMinClientWidth,
+            GetMinClientHeight);
 
         BuildUi();
         AppTheme.ResolvedThemeChanged += OnResolvedThemeChanged;
@@ -142,16 +145,6 @@ public sealed partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
         };
-        _chromeHost.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TitleDragStripHeight) });
-        _chromeHost.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-
-        _titleDragStrip = new Grid
-        {
-            Height = TitleDragStripHeight,
-            Background = chromeBackground,
-        };
-        Grid.SetRow(_titleDragStrip, 0);
-
         _rootGrid = new Grid
         {
             Background = chromeBackground,
@@ -207,11 +200,12 @@ public sealed partial class MainWindow : Window
         };
         Grid.SetRow(_statusText, 1);
 
-        Grid.SetRow(_rootGrid, 1);
         _rootGrid.Children.Add(_profileScrollViewer);
         _rootGrid.Children.Add(_statusText);
-        _chromeHost.Children.Add(_titleDragStrip);
+
+        _dockRevealIndicator = DockRevealIndicatorHelper.Create();
         _chromeHost.Children.Add(_rootGrid);
+        _chromeHost.Children.Add(_dockRevealIndicator);
 
         _contentRoot = new Grid
         {
@@ -279,7 +273,6 @@ public sealed partial class MainWindow : Window
         _rootGrid.ContextFlyout = _rootContextFlyout;
         _chromeHost.ContextFlyout = _rootContextFlyout;
         _contentRoot.ContextFlyout = _rootContextFlyout;
-        _titleDragStrip.ContextFlyout = _rootContextFlyout;
         _profileScrollViewer.ContextFlyout = _rootContextFlyout;
     }
 
@@ -366,7 +359,6 @@ public sealed partial class MainWindow : Window
 
         _contentRoot.Background = palette.Background;
         _chromeHost.Background = palette.Background;
-        _titleDragStrip.Background = palette.Background;
         _rootGrid.Background = palette.Background;
         _profileScrollViewer.Background = palette.Background;
         _profileChipHost.Background = palette.Background;
@@ -376,6 +368,7 @@ public sealed partial class MainWindow : Window
         _profileScrollViewer.RequestedTheme = elementTheme;
         _statusText.Foreground = palette.Muted;
         _addChip.Background = palette.AddChipBackground;
+        _dockRevealIndicator.Background = DockRevealIndicatorHelper.CreateBrush(AppTheme.IsDark);
         WindowResizePaintHelper.Apply(this, palette.Background.Color);
         if (_addChip.Content is TextBlock addLabel)
         {
@@ -414,8 +407,7 @@ public sealed partial class MainWindow : Window
         try
         {
             ExtendsContentIntoTitleBar = true;
-            // Title bar only on the thin top strip so scroll wheel and context menus work below.
-            SetTitleBar(_titleDragStrip);
+            // Drag is handled by WindowPositionController so Windows Snap does not resize the widget.
 
             var appWindow = AppWindowRef;
             if (appWindow.Presenter is OverlappedPresenter presenter)
@@ -472,11 +464,32 @@ public sealed partial class MainWindow : Window
 
     private void EnsurePositionController()
     {
-            _positionController ??= new WindowPositionController(
-                this,
-                _chromeHost,
-                () => AppWindowRef,
-                ScheduleGeometrySave);
+        _positionController ??= new WindowPositionController(
+            this,
+            _chromeHost,
+            () => AppWindowRef,
+            ScheduleGeometrySave,
+            UpdateDockRevealIndicator);
+        _positionController.SyncDockStateFromWindow();
+    }
+
+    private void UpdateDockRevealIndicator(WindowDockEdge edge, bool isAutoHidden)
+    {
+        var show = isAutoHidden && edge != WindowDockEdge.None;
+        _dockRevealIndicator.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        _dockRevealIndicator.Opacity = show ? 1 : 0;
+        _dockRevealIndicator.IsHitTestVisible = false;
+        if (show)
+        {
+            Canvas.SetZIndex(_dockRevealIndicator, 1000);
+        }
+        _rootGrid.Opacity = show ? 0 : 1;
+        if (!show)
+        {
+            return;
+        }
+
+        DockRevealIndicatorHelper.ApplyLayout(_dockRevealIndicator, edge);
     }
 
     private void OnRootGridLoaded(object sender, RoutedEventArgs e)
@@ -520,136 +533,12 @@ public sealed partial class MainWindow : Window
 
     private void ApplySavedOrDefaultGeometry()
     {
-        if (_geometryRestoreAttempted)
-        {
-            return;
-        }
-
-        _geometryRestoreAttempted = true;
-        _widgetSizePreset = _settings.GetWidgetSizePreset(_settingsCache);
         ApplyMinimumWindowSize();
-
-        if (_widgetSizePreset == WidgetSizePreset.Custom && TryApplySavedGeometry())
-        {
-            StartupTrace.Write($"Restored window geometry {_lastSavedGeometry}");
-        }
-        else
-        {
-            if (TryGetSavedPosition(out var x, out var y))
-            {
-                try
-                {
-                    AppWindowRef.Move(new PointInt32(x, y));
-                }
-                catch
-                {
-                    // ignore
-                }
-            }
-            else
-            {
-                TrySetDefaultWindowSize();
-            }
-
-            ApplyWidgetSizePreset(_widgetSizePreset, persist: false);
-            StartupTrace.Write(
-                $"Applied widget size preset {WidgetSizePresets.ToSettingsValue(_widgetSizePreset)}");
-        }
-
+        _widgetSizePreset = _geometryController.RestoreSavedOrDefaultGeometry(
+            DefaultWindowWidth,
+            DefaultWindowHeight,
+            ApplyWidgetSizePreset);
         ApplyMinimumWindowSize();
-        _geometryReadyForPersist = true;
-    }
-
-    private bool TryGetSavedPosition(out int x, out int y)
-    {
-        x = 0;
-        y = 0;
-        var spec = SettingsService.ParseWindowGeometry(_settingsCache);
-        if (spec is null)
-        {
-            return false;
-        }
-
-        x = spec.Value.X;
-        y = spec.Value.Y;
-        return true;
-    }
-
-    private bool TryApplySavedGeometry()
-    {
-        var spec = SettingsService.ParseWindowGeometry(_settingsCache);
-        if (spec is null)
-        {
-            return false;
-        }
-
-        if (!WindowGeometryHelper.IsPlausibleWidgetSize(
-                spec.Value.Width,
-                spec.Value.Height,
-                GetMinClientWidth(),
-                GetMinClientHeight()))
-        {
-            StartupTrace.Write(
-                $"Ignoring implausible window_geometry "
-                + $"{spec.Value.Width}x{spec.Value.Height}+{spec.Value.X}+{spec.Value.Y}");
-            ClearSavedWindowGeometry();
-            return false;
-        }
-
-        var (w, h, x, y) = WindowGeometryHelper.ClampToVirtualScreen(
-            spec.Value.Width,
-            spec.Value.Height,
-            spec.Value.X,
-            spec.Value.Y,
-            GetMinClientWidth(),
-            GetMinClientHeight());
-
-        if (!WindowGeometryHelper.IntersectsAnyWorkArea(x, y, w, h))
-        {
-            ClearSavedWindowGeometry();
-            return false;
-        }
-
-        try
-        {
-            AppWindowRef.Resize(new SizeInt32(w, h));
-            AppWindowRef.Move(new PointInt32(x, y));
-            _lastSavedGeometry = SettingsService.FormatTkGeometry(w, h, x, y);
-            return true;
-        }
-        catch
-        {
-            // ignore placement failures on first run
-            return false;
-        }
-    }
-
-    private void ClearSavedWindowGeometry()
-    {
-        try
-        {
-            _settings.MergeAndSave(new Dictionary<string, object?> { ["window_geometry"] = null });
-            _settingsCache.Remove("window_geometry");
-        }
-        catch
-        {
-            // ignore
-        }
-    }
-
-    private void TrySetDefaultWindowSize()
-    {
-        try
-        {
-            WindowGeometryHelper.CenterOnPrimaryWorkArea(
-                AppWindowRef,
-                DefaultWindowWidth,
-                DefaultWindowHeight);
-        }
-        catch
-        {
-            // ignore
-        }
     }
 
     private void SubscribeToMoveResize()
@@ -676,6 +565,59 @@ public sealed partial class MainWindow : Window
         if (args.DidPositionChange || args.DidSizeChange)
         {
             ScheduleGeometrySave();
+            RefreshDockRevealIndicatorFromWindowGeometry();
+        }
+    }
+
+    private void RefreshDockRevealIndicatorFromWindowGeometry()
+    {
+        try
+        {
+            var appWindow = AppWindowRef;
+            var pos = appWindow.Position;
+            var size = appWindow.Size;
+            var display = DisplayArea.GetFromPoint(pos, DisplayAreaFallback.Nearest);
+            var work = display.WorkArea;
+
+            if (size.Width <= 0 || size.Height <= 0)
+            {
+                return;
+            }
+
+            var hiddenLeftX = work.X - size.Width + AutoHidePeekPixels;
+            var hiddenRightX = work.X + work.Width - AutoHidePeekPixels;
+            var hiddenTopY = work.Y - size.Height + AutoHidePeekPixels;
+            var hiddenBottomY = work.Y + work.Height - AutoHidePeekPixels;
+
+            if (Math.Abs(pos.X - hiddenLeftX) <= DockStateTolerancePixels)
+            {
+                UpdateDockRevealIndicator(WindowDockEdge.Left, isAutoHidden: true);
+                return;
+            }
+
+            if (Math.Abs(pos.X - hiddenRightX) <= DockStateTolerancePixels)
+            {
+                UpdateDockRevealIndicator(WindowDockEdge.Right, isAutoHidden: true);
+                return;
+            }
+
+            if (Math.Abs(pos.Y - hiddenTopY) <= DockStateTolerancePixels)
+            {
+                UpdateDockRevealIndicator(WindowDockEdge.Top, isAutoHidden: true);
+                return;
+            }
+
+            if (Math.Abs(pos.Y - hiddenBottomY) <= DockStateTolerancePixels)
+            {
+                UpdateDockRevealIndicator(WindowDockEdge.Bottom, isAutoHidden: true);
+                return;
+            }
+
+            UpdateDockRevealIndicator(WindowDockEdge.None, isAutoHidden: false);
+        }
+        catch
+        {
+            // ignore
         }
     }
 
@@ -800,7 +742,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var height = AppWindowRef.Size.Height - TitleDragStripHeight - RootGridPaddingTop - RootGridPaddingBottom;
+            var height = AppWindowRef.Size.Height - RootGridPaddingTop - RootGridPaddingBottom;
             if (_statusText.Visibility == Visibility.Visible)
             {
                 height -= _statusText.ActualHeight + 8;
@@ -917,8 +859,7 @@ public sealed partial class MainWindow : Window
         var chipUnit = ChipUnitPx();
         var width = (int)Math.Ceiling(2 * RootGridPaddingSide + columns * chipUnit + PresetWidthSlackPx);
         var height = (int)Math.Ceiling(
-            TitleDragStripHeight
-            + RootGridPaddingTop
+            RootGridPaddingTop
             + RootGridPaddingBottom
             + rows * chipUnit
             + MinChromeSlackPx);
@@ -970,7 +911,7 @@ public sealed partial class MainWindow : Window
         if (WidgetSizePresets.IsVerticalFit(preset))
         {
             var overhead = (int)Math.Ceiling(
-                TitleDragStripHeight + RootGridPaddingTop + RootGridPaddingBottom + MinChromeSlackPx);
+                RootGridPaddingTop + RootGridPaddingBottom + MinChromeSlackPx);
             var maxRows = Math.Max(1, (WindowGeometryHelper.MaxWidgetHeight - overhead) / chipUnit);
             rows = Math.Min(rows, maxRows);
             return (columns, rows);
@@ -986,7 +927,7 @@ public sealed partial class MainWindow : Window
 
         // 2×fit: cap rows when many chips
         var rowOverhead = (int)Math.Ceiling(
-            TitleDragStripHeight + RootGridPaddingTop + RootGridPaddingBottom + MinChromeSlackPx);
+            RootGridPaddingTop + RootGridPaddingBottom + MinChromeSlackPx);
         var maxFitRows = Math.Max(1, (WindowGeometryHelper.MaxWidgetHeight - rowOverhead) / chipUnit);
         rows = Math.Min(rows, maxFitRows);
         return (columns, rows);
@@ -1021,7 +962,7 @@ public sealed partial class MainWindow : Window
 
     private void MaybeResizeForFitPreset()
     {
-        if (!_geometryReadyForPersist || !WidgetSizePresets.IsFit(_widgetSizePreset))
+        if (!_geometryController.IsReadyForPersist || !WidgetSizePresets.IsFit(_widgetSizePreset))
         {
             return;
         }
@@ -1049,8 +990,7 @@ public sealed partial class MainWindow : Window
             ? (int)Math.Ceiling(_statusText.ActualHeight + 8)
             : 0;
         return (int)Math.Ceiling(
-            TitleDragStripHeight
-            + RootGridPaddingTop
+            RootGridPaddingTop
             + RootGridPaddingBottom
             + MinChipRowHeightPx()
             + statusReserve);
@@ -1080,98 +1020,12 @@ public sealed partial class MainWindow : Window
 
     private void ScheduleGeometrySave()
     {
-        if (!_geometryReadyForPersist)
-        {
-            return;
-        }
-
-        _geometryTimer.Stop();
-        _geometryTimer.Start();
-    }
-
-    private void OnGeometryTimerTick(object? sender, object e)
-    {
-        _geometryTimer.Stop();
-        PersistWindowGeometry();
+        _geometryController.ScheduleSave();
     }
 
     private void PersistWindowGeometry(bool force = false)
     {
-        try
-        {
-            if (!TryReadWindowGeometry(out var w, out var h, out var x, out var y))
-            {
-                return;
-            }
-
-            var minH = GetMinClientHeight();
-            var minW = GetMinClientWidth();
-            (w, h) = WindowGeometryHelper.ClampWidgetSize(w, h, minW, minH);
-            if (!WindowGeometryHelper.IsPlausibleWidgetSize(w, h, minW, minH))
-            {
-                return;
-            }
-
-            var geom = SettingsService.FormatTkGeometry(w, h, x, y);
-            if (!force && geom == _lastSavedGeometry)
-            {
-                return;
-            }
-
-            _lastSavedGeometry = geom;
-            _settings.MergeAndSave(new Dictionary<string, object?> { ["window_geometry"] = geom });
-            _settingsCache = _settings.Load();
-            StartupTrace.Write($"Saved window geometry {geom}");
-        }
-        catch (Exception ex)
-        {
-            CrashLog.Write("PersistWindowGeometry", ex);
-        }
-    }
-
-    private bool TryReadWindowGeometry(out int width, out int height, out int x, out int y)
-    {
-        width = 0;
-        height = 0;
-        x = 0;
-        y = 0;
-
-        try
-        {
-            var size = AppWindowRef.Size;
-            var pos = AppWindowRef.Position;
-            if (size.Width > 0 && size.Height > 0)
-            {
-                width = size.Width;
-                height = size.Height;
-                x = pos.X;
-                y = pos.Y;
-                return true;
-            }
-        }
-        catch
-        {
-            // fall through to Win32
-        }
-
-        try
-        {
-            var hwnd = WindowNative.GetWindowHandle(this);
-            if (WindowGeometryHelper.TryGetWindowRect(hwnd, out var rect))
-            {
-                width = rect.Width;
-                height = rect.Height;
-                x = rect.X;
-                y = rect.Y;
-                return true;
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-
-        return false;
+        _geometryController.Persist(force);
     }
 
     private void SafeRefreshProfiles()
@@ -1572,8 +1426,7 @@ public sealed partial class MainWindow : Window
     private static string TryDevTitleSuffix(string baseTitle)
     {
         var baseDir = AppContext.BaseDirectory;
-        if (!baseDir.Contains("layout-profiles", StringComparison.OrdinalIgnoreCase)
-            || !baseDir.Contains(@"bin\x64", StringComparison.OrdinalIgnoreCase))
+        if (!baseDir.Contains(@"bin\x64", StringComparison.OrdinalIgnoreCase))
         {
             return baseTitle;
         }
