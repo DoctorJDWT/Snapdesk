@@ -53,6 +53,15 @@ internal static class SecondaryWindowPlacement
         {
             // ignore placement failures
         }
+
+        try
+        {
+            WindowChromeHelper.ApplyRoundedCorners(window);
+        }
+        catch
+        {
+            // ignore DWM failures on older builds
+        }
     }
 
     public static void TryPersist(Window window, string dialogId)

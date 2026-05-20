@@ -10,58 +10,37 @@ namespace LayoutProfiles.WinUI.Helpers;
 /// </summary>
 internal static class DockRevealIndicatorHelper
 {
-    public const double PillLong = 24;
-    public const double PillThick = 3.5;
+    // macOS-style edge tick: ~9:1 length:thickness.
+    public const double PillLong = 50;
+    public const double PillThick = 4;
+
+    /// <summary>Soft grey capsule (~90% alpha), visible on light and dark wallpapers.</summary>
+    public const byte PillAlpha = 0xE6;
 
     public static Border Create()
     {
         return new Border
         {
             IsHitTestVisible = false,
-            Visibility = Visibility.Collapsed,
+            Visibility = Visibility.Visible,
             Background = CreateBrush(dark: true),
             CornerRadius = new CornerRadius(PillThick / 2),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
         };
     }
 
     public static SolidColorBrush CreateBrush(bool dark) =>
-        new(dark
-            ? Color.FromArgb(0xF2, 0xFF, 0xFF, 0xFF)
-            : Color.FromArgb(0xCC, 0x22, 0x22, 0x22));
+        new(Color.FromArgb(PillAlpha, 0xB8, 0xB8, 0xB8));
 
     public static void ApplyLayout(Border indicator, WindowDockEdge edge)
     {
-        indicator.HorizontalAlignment = HorizontalAlignment.Center;
-        indicator.VerticalAlignment = VerticalAlignment.Center;
+        indicator.HorizontalAlignment = HorizontalAlignment.Stretch;
+        indicator.VerticalAlignment = VerticalAlignment.Stretch;
         indicator.Margin = new Thickness(0);
-        indicator.Width = PillLong;
-        indicator.Height = PillThick;
-
-        switch (edge)
-        {
-            case WindowDockEdge.Top:
-                indicator.VerticalAlignment = VerticalAlignment.Bottom;
-                indicator.Margin = new Thickness(0);
-                break;
-            case WindowDockEdge.Bottom:
-                indicator.VerticalAlignment = VerticalAlignment.Top;
-                indicator.Margin = new Thickness(0);
-                break;
-            case WindowDockEdge.Left:
-                indicator.HorizontalAlignment = HorizontalAlignment.Right;
-                indicator.VerticalAlignment = VerticalAlignment.Center;
-                indicator.Width = PillThick;
-                indicator.Height = PillLong;
-                indicator.Margin = new Thickness(0);
-                break;
-            case WindowDockEdge.Right:
-                indicator.HorizontalAlignment = HorizontalAlignment.Left;
-                indicator.VerticalAlignment = VerticalAlignment.Center;
-                indicator.Width = PillThick;
-                indicator.Height = PillLong;
-                indicator.Margin = new Thickness(0);
-                break;
-        }
+        indicator.ClearValue(FrameworkElement.WidthProperty);
+        indicator.ClearValue(FrameworkElement.HeightProperty);
+        indicator.CornerRadius = new CornerRadius(PillThick / 2);
     }
 }
 

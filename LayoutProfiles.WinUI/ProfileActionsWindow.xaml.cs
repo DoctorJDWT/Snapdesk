@@ -47,6 +47,8 @@ public sealed partial class ProfileActionsWindow : Window
 
         Closed += OnClosed;
         SecondaryWindowTracker.Register(this);
+        AppTheme.ResolvedThemeChanged += OnResolvedThemeChanged;
+        ApplyThemeFromApp();
         ConfigureWindowChrome();
     }
 
@@ -55,6 +57,30 @@ public sealed partial class ProfileActionsWindow : Window
         var window = new ProfileActionsWindow(row);
         window.Activate();
         return window._tcs.Task;
+    }
+
+    private void OnResolvedThemeChanged() =>
+        DispatcherQueue.TryEnqueue(ApplyThemeFromApp);
+
+    private void ApplyThemeFromApp()
+    {
+        var palette = AppTheme.Palette;
+        var elementTheme = AppTheme.IsDark ? ElementTheme.Dark : ElementTheme.Light;
+
+        RootGrid.Background = palette.Background;
+        RootGrid.RequestedTheme = elementTheme;
+        ProfileNameText.Foreground = palette.Primary;
+        ProfileMetaText.Foreground = palette.Muted;
+
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            WindowChromeHelper.ApplyNonClientFrame(hwnd, AppTheme.IsDark);
+        }
+        catch
+        {
+            // ignore
+        }
     }
 
     private void ConfigureWindowChrome() =>
@@ -107,6 +133,7 @@ public sealed partial class ProfileActionsWindow : Window
 
     private void OnClosed(object sender, WindowEventArgs e)
     {
+        AppTheme.ResolvedThemeChanged -= OnResolvedThemeChanged;
         SecondaryWindowPlacement.TryPersist(this, SecondaryWindowPlacement.ProfileActions);
         Complete(ProfileActionsResult.None);
     }

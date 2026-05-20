@@ -1,4 +1,4 @@
-# Snapdesk (layout-profiles)
+# Snapdesk
 
 Save and restore window layouts across monitors on Windows.
 

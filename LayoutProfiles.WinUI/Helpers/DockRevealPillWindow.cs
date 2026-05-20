@@ -15,34 +15,39 @@ namespace LayoutProfiles.WinUI.Helpers;
 /// </summary>
 internal sealed class DockRevealPillWindow : Window
 {
-    private const int WindowPadPx = 2;
+    /// <summary>Distance from the monitor work-area edge to the pill (into the desktop).</summary>
+    public const int EdgeInsetPx = 6;
 
     private readonly Border _pill;
+    private WindowDockEdge _edge = WindowDockEdge.Top;
 
     public DockRevealPillWindow()
     {
         Title = string.Empty;
+        SystemBackdrop = null;
 
-        var (clientW, clientH) = GetClientSize(WindowDockEdge.Top);
+        _edge = WindowDockEdge.Top;
+        var (clientW, clientH) = GetClientSize(_edge);
         _pill = DockRevealIndicatorHelper.Create();
-        DockRevealIndicatorHelper.ApplyLayout(_pill, WindowDockEdge.Top);
+        DockRevealIndicatorHelper.ApplyLayout(_pill, _edge);
 
         var root = new Grid
         {
             Width = clientW,
             Height = clientH,
-            Background = new SolidColorBrush(Color.FromArgb(0x01, 0, 0, 0)),
+            Background = new SolidColorBrush(Colors.Transparent),
         };
         root.Children.Add(_pill);
         Content = root;
 
-        ConfigureChrome(clientW, clientH);
+        ConfigureChrome(_edge);
     }
 
     public void ApplyTheme(bool dark) => _pill.Background = DockRevealIndicatorHelper.CreateBrush(dark);
 
     public void PlaceAtEdge(WindowDockEdge edge, DisplayArea display, AppWindow mainWindow)
     {
+        _edge = edge;
         var size = mainWindow.Size;
         var pos = mainWindow.Position;
         var work = display.WorkArea;
@@ -61,6 +66,10 @@ internal sealed class DockRevealPillWindow : Window
             var appWindow = GetAppWindow();
             appWindow.Resize(new SizeInt32(clientW, clientH));
             appWindow.Move(ComputeScreenPosition(edge, pos, size, work, clientW, clientH));
+
+            var hwnd = WindowNative.GetWindowHandle(this);
+            WindowChromeHelper.ApplyOverlayWindowChrome(hwnd);
+            WindowChromeHelper.ApplyPillWindowRegion(hwnd, clientW, clientH);
             ApplyTopmostClickThrough();
         }
         catch
@@ -69,7 +78,7 @@ internal sealed class DockRevealPillWindow : Window
         }
     }
 
-    private void ConfigureChrome(int width, int height)
+    private void ConfigureChrome(WindowDockEdge edge)
     {
         try
         {
@@ -82,12 +91,12 @@ internal sealed class DockRevealPillWindow : Window
                 presenter.IsMinimizable = false;
             }
 
-            WindowChromeHelper.ApplyBorderlessTitleBar(appWindow);
-            appWindow.Resize(new SizeInt32(width, height));
+            var (w, h) = GetClientSize(edge);
+            appWindow.Resize(new SizeInt32(w, h));
 
             var hwnd = WindowNative.GetWindowHandle(this);
-            WindowChromeHelper.ApplyNonClientFrame(hwnd, AppTheme.IsDark);
-            WindowChromeHelper.ApplySquareCorners(this);
+            WindowChromeHelper.ApplyOverlayWindowChrome(hwnd);
+            WindowChromeHelper.ApplyPillWindowRegion(hwnd, w, h);
             ApplyTopmostClickThrough();
         }
         catch
@@ -111,10 +120,8 @@ internal sealed class DockRevealPillWindow : Window
 
     private static (int Width, int Height) GetClientSize(WindowDockEdge edge) =>
         edge is WindowDockEdge.Left or WindowDockEdge.Right
-            ? ((int)Math.Ceiling(DockRevealIndicatorHelper.PillThick + WindowPadPx * 2),
-                (int)Math.Ceiling(DockRevealIndicatorHelper.PillLong + WindowPadPx * 2))
-            : ((int)Math.Ceiling(DockRevealIndicatorHelper.PillLong + WindowPadPx * 2),
-                (int)Math.Ceiling(DockRevealIndicatorHelper.PillThick + WindowPadPx * 2));
+            ? ((int)DockRevealIndicatorHelper.PillThick, (int)DockRevealIndicatorHelper.PillLong)
+            : ((int)DockRevealIndicatorHelper.PillLong, (int)DockRevealIndicatorHelper.PillThick);
 
     private static PointInt32 ComputeScreenPosition(
         WindowDockEdge edge,
@@ -131,15 +138,15 @@ internal sealed class DockRevealPillWindow : Window
         {
             WindowDockEdge.Top => new PointInt32(
                 centerX - clientW / 2,
-                work.Y),
+                work.Y + EdgeInsetPx),
             WindowDockEdge.Bottom => new PointInt32(
                 centerX - clientW / 2,
-                work.Y + work.Height - clientH),
+                work.Y + work.Height - clientH - EdgeInsetPx),
             WindowDockEdge.Left => new PointInt32(
-                work.X,
+                work.X + EdgeInsetPx,
                 centerY - clientH / 2),
             WindowDockEdge.Right => new PointInt32(
-                work.X + work.Width - clientW,
+                work.X + work.Width - clientW - EdgeInsetPx,
                 centerY - clientH / 2),
             _ => mainPos,
         };

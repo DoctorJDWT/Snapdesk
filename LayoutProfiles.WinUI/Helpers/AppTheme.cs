@@ -8,6 +8,8 @@ namespace LayoutProfiles.WinUI.Helpers;
 internal readonly struct WidgetPalette
 {
     public SolidColorBrush Background { get; init; }
+    public SolidColorBrush OpaqueChrome { get; init; }
+    public SolidColorBrush Primary { get; init; }
     public SolidColorBrush Border { get; init; }
     public SolidColorBrush Muted { get; init; }
     public SolidColorBrush Accent { get; init; }
@@ -16,7 +18,12 @@ internal readonly struct WidgetPalette
 
 internal static class AppTheme
 {
+    /// <summary>Panel veil when acrylic is off (~40% tint). With acrylic, use transparent overlay instead.</summary>
+    private const byte FallbackPanelAlpha = 0x66;
+
     public const string WidgetBackground = "WidgetBackgroundBrush";
+    public const string WidgetOpaqueChrome = "WidgetOpaqueChromeBrush";
+    public const string WidgetPrimary = "WidgetPrimaryBrush";
     public const string WidgetBorder = "WidgetBorderBrush";
     public const string WidgetMuted = "WidgetMutedBrush";
     public const string WidgetAccent = "WidgetAccentBrush";
@@ -139,21 +146,25 @@ internal static class AppTheme
         {
             return new WidgetPalette
             {
-                Background = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x1E, 0x1E, 0x1E)),
-                Border = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x2E, 0x32, 0x38)),
-                Muted = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x9A, 0xA3, 0xAD)),
+                Background = new SolidColorBrush(ColorHelper.FromArgb(FallbackPanelAlpha, 0x28, 0x28, 0x28)),
+                OpaqueChrome = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x28, 0x28, 0x28)),
+                Primary = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)),
+                Border = new SolidColorBrush(ColorHelper.FromArgb(0x33, 0xFF, 0xFF, 0xFF)),
+                Muted = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0xB3, 0xB3, 0xB3)),
                 Accent = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x4C, 0x8B, 0xF5)),
-                AddChipBackground = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x48, 0x4C, 0x54)),
+                AddChipBackground = new SolidColorBrush(ColorHelper.FromArgb(0x33, 0xFF, 0xFF, 0xFF)),
             };
         }
 
         return new WidgetPalette
         {
-            Background = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0xF0, 0xF2, 0xF5)),
-            Border = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0xC8, 0xD0, 0xD9)),
+            Background = new SolidColorBrush(ColorHelper.FromArgb(FallbackPanelAlpha, 0xF0, 0xF0, 0xF0)),
+            OpaqueChrome = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0xEF, 0xEF, 0xEF)),
+            Primary = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x33, 0x33, 0x33)),
+            Border = new SolidColorBrush(ColorHelper.FromArgb(0x26, 0x00, 0x00, 0x00)),
             Muted = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x47, 0x51, 0x5C)),
             Accent = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x09, 0x69, 0xDA)),
-            AddChipBackground = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0xDC, 0xE0, 0xE6)),
+            AddChipBackground = new SolidColorBrush(ColorHelper.FromArgb(0x1A, 0x00, 0x00, 0x00)),
         };
     }
 
@@ -161,6 +172,8 @@ internal static class AppTheme
     {
         var app = Application.Current;
         app.Resources[WidgetBackground] = palette.Background;
+        app.Resources[WidgetOpaqueChrome] = palette.OpaqueChrome;
+        app.Resources[WidgetPrimary] = palette.Primary;
         app.Resources[WidgetBorder] = palette.Border;
         app.Resources[WidgetMuted] = palette.Muted;
         app.Resources[WidgetAccent] = palette.Accent;

@@ -1,6 +1,5 @@
 using LayoutProfiles.WinUI.Helpers;
 using LayoutProfiles.WinUI.Models;
-using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -56,15 +55,12 @@ public sealed partial class ProfileDeleteWindow : Window
     {
         var palette = AppTheme.Palette;
         var elementTheme = AppTheme.IsDark ? ElementTheme.Dark : ElementTheme.Light;
-        var primary = AppTheme.IsDark
-            ? new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0xF0, 0xF2, 0xF5))
-            : new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x1E, 0x1E, 0x1E));
 
         RootGrid.Background = palette.Background;
         RootGrid.RequestedTheme = elementTheme;
 
-        HeadingText.Foreground = primary;
-        ProfileNameText.Foreground = primary;
+        HeadingText.Foreground = palette.Primary;
+        ProfileNameText.Foreground = palette.Primary;
         ProfileMetaText.Foreground = palette.Muted;
         MessageText.Foreground = palette.Muted;
 

@@ -17,11 +17,8 @@ internal static class WindowResizePaintHelper
     private const uint WmSize = 0x0005;
     private const uint WmSizing = 0x0214;
     private const nuint ResizeFillSubclassId = 0x5A4E;
-    private const int DwmwaWindowCornerPreference = 33;
-    private const int DwmwaVisibleFrameBorderThickness = 37;
-    private const int DwmwcpDoNotRound = 1;
-
     private static readonly ConcurrentDictionary<nint, int> FillColors = new();
+    private static readonly ConcurrentDictionary<nint, bool> OpaqueClientErase = new();
     private static readonly ConcurrentDictionary<nint, (int Width, int Height)> LastClientSizes = new();
     private static readonly ResizeSubclassProc SubclassProcImpl = OnSubclassMessage;
 
@@ -33,10 +30,15 @@ internal static class WindowResizePaintHelper
         nuint uIdSubclass,
         nint dwRefData);
 
-    public static void Apply(Window window, Color color)
+    /// <param name="paintOpaqueClientBackground">
+    /// When false, do not handle <c>WM_ERASEBACKGROUND</c> — required for semi-transparent WinUI chrome.
+    /// Resize edge bands still use <paramref name="color"/> during live resize.
+    /// </param>
+    public static void Apply(Window window, Color color, bool paintOpaqueClientBackground = true)
     {
         var hwnd = WindowNative.GetWindowHandle(window);
         FillColors[hwnd] = ToColorRef(color);
+        OpaqueClientErase[hwnd] = paintOpaqueClientBackground;
 
         if (GetClientRect(hwnd, out var rect))
         {
@@ -50,6 +52,7 @@ internal static class WindowResizePaintHelper
     {
         var hwnd = WindowNative.GetWindowHandle(window);
         FillColors.TryRemove(hwnd, out _);
+        OpaqueClientErase.TryRemove(hwnd, out _);
         LastClientSizes.TryRemove(hwnd, out _);
         _ = RemoveWindowSubclass(hwnd, SubclassProcImpl, ResizeFillSubclassId);
     }
@@ -67,7 +70,10 @@ internal static class WindowResizePaintHelper
             return DefSubclassProc(hWnd, uMsg, wParam, lParam);
         }
 
-        if (uMsg == WmEraseBackground && wParam != 0)
+        if (uMsg == WmEraseBackground
+            && wParam != 0
+            && OpaqueClientErase.TryGetValue(hWnd, out var eraseOpaque)
+            && eraseOpaque)
         {
             FillClientRect(wParam, hWnd, colorRef);
             return 1;
@@ -75,27 +81,13 @@ internal static class WindowResizePaintHelper
 
         if (uMsg is WmSizing or WmSize)
         {
-            ApplySquareCorners(hWnd);
+            WindowChromeHelper.ApplyRoundedCorners(hWnd);
             var result = DefSubclassProc(hWnd, uMsg, wParam, lParam);
             FillExpandedClientBands(hWnd, colorRef);
             return result;
         }
 
         return DefSubclassProc(hWnd, uMsg, wParam, lParam);
-    }
-
-    private static void ApplySquareCorners(nint hwnd)
-    {
-        if (hwnd == 0)
-        {
-            return;
-        }
-
-        var preference = DwmwcpDoNotRound;
-        _ = DwmSetWindowAttribute(hwnd, DwmwaWindowCornerPreference, ref preference, sizeof(int));
-
-        var noBorder = 0;
-        _ = DwmSetWindowAttribute(hwnd, DwmwaVisibleFrameBorderThickness, ref noBorder, sizeof(int));
     }
 
     private static void FillClientRect(nint hdc, nint hwnd, int colorRef)
@@ -192,13 +184,6 @@ internal static class WindowResizePaintHelper
         public int Right;
         public int Bottom;
     }
-
-    [DllImport("dwmapi.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
-    private static extern int DwmSetWindowAttribute(
-        nint hwnd,
-        int attribute,
-        ref int pvAttribute,
-        int cbAttribute);
 
     [DllImport("comctl32.dll", SetLastError = true)]
     private static extern bool SetWindowSubclass(

@@ -30,7 +30,7 @@ internal static class WindowChromeHelper
     private const int DwmwaCaptionColor = 35;
     private const int DwmwaBorderColor = 34;
     private const int DwmwaVisibleFrameBorderThickness = 37;
-    private const int DwmwcpDoNotRound = 1;
+    private const int DwmwcpRound = 2;
 
     [DllImport("dwmapi.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
     private static extern int DwmSetWindowAttribute(
@@ -39,10 +39,12 @@ internal static class WindowChromeHelper
         ref int pvAttribute,
         int cbAttribute);
 
-    public static void ApplySquareCorners(Window window)
+    public static void ApplyRoundedCorners(Window window) =>
+        ApplyRoundedCorners(WindowNative.GetWindowHandle(window));
+
+    public static void ApplyRoundedCorners(IntPtr hwnd)
     {
-        var hwnd = WindowNative.GetWindowHandle(window);
-        var preference = DwmwcpDoNotRound;
+        var preference = DwmwcpRound;
         _ = DwmSetWindowAttribute(hwnd, DwmwaWindowCornerPreference, ref preference, sizeof(int));
     }
 
@@ -80,18 +82,110 @@ internal static class WindowChromeHelper
 
     /// <summary>
     /// Match non-client caption/border to widget chrome so no light strip shows at the top.
+    /// Use on opaque dialog windows only — on the glass widget this draws a themed outline ring.
     /// </summary>
     public static void ApplyNonClientFrame(IntPtr hwnd, bool dark)
     {
-        var color = dark ? 0x001E1E1E : 0x00F5F7FA; // COLORREF BGR
+        var color = dark ? 0x00282828 : 0x00F0F0F0; // COLORREF BGR
         _ = DwmSetWindowAttribute(hwnd, DwmwaCaptionColor, ref color, sizeof(int));
         _ = DwmSetWindowAttribute(hwnd, DwmwaBorderColor, ref color, sizeof(int));
+        ApplyZeroVisibleFrameBorder(hwnd);
+    }
 
+    /// <summary>
+    /// Borderless glass widget: transparent DWM caption/border so rounded acrylic has no dark/white halo.
+    /// </summary>
+    public static void ApplyGlassNonClientFrame(IntPtr hwnd)
+    {
+        var transparent = 0x00000000;
+        _ = DwmSetWindowAttribute(hwnd, DwmwaCaptionColor, ref transparent, sizeof(int));
+        _ = DwmSetWindowAttribute(hwnd, DwmwaBorderColor, ref transparent, sizeof(int));
+        ApplyZeroVisibleFrameBorder(hwnd);
+    }
+
+    public static void ApplyDarkNonClientFrame(IntPtr hwnd) => ApplyNonClientFrame(hwnd, dark: true);
+
+    /// <summary>Remove visible DWM frame only — no caption/border tint (for tiny overlays).</summary>
+    public static void ApplyZeroVisibleFrameBorder(IntPtr hwnd)
+    {
         var noBorder = 0;
         _ = DwmSetWindowAttribute(hwnd, DwmwaVisibleFrameBorderThickness, ref noBorder, sizeof(int));
     }
 
-    public static void ApplyDarkNonClientFrame(IntPtr hwnd) => ApplyNonClientFrame(hwnd, dark: true);
+    /// <summary>
+    /// Strip Win32 caption/thick-frame so tiny overlay windows do not show a collapsed title-bar band.
+    /// Do not call <see cref="ApplyBorderlessTitleBar"/> on these windows — that path reserves the band.
+    /// </summary>
+    public static void ApplyOverlayWindowChrome(IntPtr hwnd)
+    {
+        ApplyZeroVisibleFrameBorder(hwnd);
+
+        const int gwlStyle = -16;
+        const nint wsCaption = 0x00C00000;
+        const nint wsThickFrame = 0x00040000;
+        const nint wsBorder = 0x00800000;
+        const nint wsDlgFrame = 0x00400000;
+
+        var style = GetWindowLongPtr(hwnd, gwlStyle);
+        style &= ~(wsCaption | wsThickFrame | wsBorder | wsDlgFrame);
+        SetWindowLongPtr(hwnd, gwlStyle, style);
+
+        // Do not use DwmExtendFrameIntoClientArea(-1) on tiny overlays — it draws glass
+        // strips on different edges depending on dock side (the white/black bar artifacts).
+
+        const uint swpFrameChanged = 0x0020;
+        const uint swpNoMove = 0x0002;
+        const uint swpNoSize = 0x0001;
+        const uint swpNoZOrder = 0x0004;
+        const uint swpNoActivate = 0x0010;
+        _ = SetWindowPos(hwnd, 0, 0, 0, 0, 0, swpNoMove | swpNoSize | swpNoZOrder | swpNoActivate | swpFrameChanged);
+    }
+
+    /// <summary>Clip the HWND to a capsule so no rectangular frame can bleed on any edge.</summary>
+    public static void ApplyPillWindowRegion(IntPtr hwnd, int width, int height)
+    {
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var corner = Math.Max(1, Math.Min(width, height));
+        var rgn = CreateRoundRectRgn(0, 0, width, height, corner, corner);
+        if (rgn == 0)
+        {
+            return;
+        }
+
+        _ = SetWindowRgn(hwnd, rgn, true);
+    }
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRoundRectRgn(
+        int left,
+        int top,
+        int right,
+        int bottom,
+        int ellipseWidth,
+        int ellipseHeight);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool redraw);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern nint GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern nint SetWindowLongPtr(IntPtr hWnd, int nIndex, nint dwNewLong);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int x,
+        int y,
+        int cx,
+        int cy,
+        uint uFlags);
 
     /// <summary>
     /// Win32 minimum resize track (outer window pixels). <paramref name="minClientWidth"/> /

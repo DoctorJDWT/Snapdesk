@@ -23,6 +23,7 @@ public sealed partial class MainWindow : Window
     private Grid _rootGrid = null!;
     private WindowPositionController? _positionController;
     private DockRevealPillController? _dockPillController;
+    private WindowGlassBackdropHelper? _glassBackdrop;
     private ScrollViewer _profileScrollViewer = null!;
     private Grid _profileChipHost = null!;
     private GumballGridLayout _gumballLayout = null!;
@@ -99,6 +100,8 @@ public sealed partial class MainWindow : Window
         {
             StartupTrace.Write("FinishStartup begin");
             ConfigureBorderlessWidgetChrome();
+            _glassBackdrop = new WindowGlassBackdropHelper(this);
+            _glassBackdrop.TryEnable();
 
             _settingsCache = _settings.Load();
             ApplySavedOrDefaultGeometry();
@@ -137,6 +140,7 @@ public sealed partial class MainWindow : Window
     {
         Title = TryDevTitleSuffix("Snapdesk");
 
+        var transparent = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         var chromeBackground = (Brush)Application.Current.Resources[AppTheme.WidgetBackground];
         _chromeHost = new Grid
         {
@@ -146,7 +150,7 @@ public sealed partial class MainWindow : Window
         };
         _rootGrid = new Grid
         {
-            Background = chromeBackground,
+            Background = transparent,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(
@@ -168,12 +172,12 @@ public sealed partial class MainWindow : Window
 
         _profileChipHost = new Grid
         {
-            Background = chromeBackground,
+            Background = transparent,
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         _profileScrollViewer = new ScrollViewer
         {
-            Background = chromeBackground,
+            Background = transparent,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             HorizontalContentAlignment = HorizontalAlignment.Center,
@@ -206,7 +210,7 @@ public sealed partial class MainWindow : Window
 
         _contentRoot = new Grid
         {
-            Background = chromeBackground,
+            Background = transparent,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
         };
@@ -265,7 +269,9 @@ public sealed partial class MainWindow : Window
         {
             SyncThemeMenuChecks();
             SyncSizeMenuChecks();
+            _positionController?.PushFlyoutSuppress();
         };
+        _rootContextFlyout.Closed += (_, _) => _positionController?.PopFlyoutSuppress();
 
         _rootGrid.ContextFlyout = _rootContextFlyout;
         _chromeHost.ContextFlyout = _rootContextFlyout;
@@ -353,19 +359,23 @@ public sealed partial class MainWindow : Window
     {
         var palette = AppTheme.Palette;
         var elementTheme = AppTheme.IsDark ? ElementTheme.Dark : ElementTheme.Light;
+        var transparent = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
 
-        _contentRoot.Background = palette.Background;
-        _chromeHost.Background = palette.Background;
-        _rootGrid.Background = palette.Background;
-        _profileScrollViewer.Background = palette.Background;
-        _profileChipHost.Background = palette.Background;
+        // Parents transparent; acrylic carries the glass. No extra 60% veil on top (that hid the effect).
+        _contentRoot.Background = transparent;
+        _chromeHost.Background = _glassBackdrop?.IsEnabled == true ? transparent : palette.Background;
+        _rootGrid.Background = transparent;
+        _profileScrollViewer.Background = transparent;
+        _profileChipHost.Background = transparent;
         _contentRoot.RequestedTheme = elementTheme;
         _chromeHost.RequestedTheme = elementTheme;
         _rootGrid.RequestedTheme = elementTheme;
         _profileScrollViewer.RequestedTheme = elementTheme;
         _statusText.Foreground = palette.Muted;
         _addChip.Background = palette.AddChipBackground;
-        WindowResizePaintHelper.Apply(this, palette.Background.Color);
+        _glassBackdrop?.ApplyTheme(AppTheme.IsDark);
+        // Opaque GDI erase blocks WinUI alpha; only paint resize edge bands.
+        WindowResizePaintHelper.Apply(this, palette.OpaqueChrome.Color, paintOpaqueClientBackground: false);
         if (_addChip.Content is TextBlock addLabel)
         {
             addLabel.Foreground = palette.Accent;
@@ -374,7 +384,7 @@ public sealed partial class MainWindow : Window
         try
         {
             var hwnd = WindowNative.GetWindowHandle(this);
-            WindowChromeHelper.ApplyNonClientFrame(hwnd, AppTheme.IsDark);
+            WindowChromeHelper.ApplyGlassNonClientFrame(hwnd);
         }
         catch
         {
@@ -422,16 +432,15 @@ public sealed partial class MainWindow : Window
         try
         {
             var hwnd = WindowNative.GetWindowHandle(this);
-            WindowChromeHelper.ApplyNonClientFrame(hwnd, AppTheme.IsDark);
-            WindowChromeHelper.ApplySquareCorners(this);
+            WindowChromeHelper.ApplyGlassNonClientFrame(hwnd);
+            WindowChromeHelper.ApplyRoundedCorners(this);
         }
         catch
         {
             // ignore DWM failures on older builds
         }
 
-        // Acrylic backdrop disabled: can crash unpackaged WinUI shortly after first paint.
-        SystemBackdrop = null;
+        // System backdrop is enabled in FinishStartup via WindowGlassBackdropHelper (desktop acrylic).
 
         ApplyMinimumWindowSize();
     }
@@ -511,6 +520,8 @@ public sealed partial class MainWindow : Window
             WindowChromeHelper.RemoveMinimumTrackSize(this);
             WindowResizePaintHelper.Remove(this);
             _dockPillController?.Close();
+            _glassBackdrop?.Dispose();
+            _glassBackdrop = null;
         }
         catch
         {
@@ -518,7 +529,6 @@ public sealed partial class MainWindow : Window
         }
 
         SecondaryWindowTracker.CloseAll();
-        SystemBackdrop = null;
     }
 
     private void ApplySavedOrDefaultGeometry()
@@ -1115,7 +1125,10 @@ public sealed partial class MainWindow : Window
         editItem.Click += async (_, _) => await RunEditAsync(row);
         var deleteItem = new MenuFlyoutItem { Text = "Delete profile" };
         deleteItem.Click += async (_, _) => await ConfirmAndDeleteProfileAsync(row);
-        btn.ContextFlyout = new MenuFlyout { Items = { editItem, deleteItem } };
+        var chipFlyout = new MenuFlyout { Items = { editItem, deleteItem } };
+        chipFlyout.Opening += (_, _) => _positionController?.PushFlyoutSuppress();
+        chipFlyout.Closed += (_, _) => _positionController?.PopFlyoutSuppress();
+        btn.ContextFlyout = chipFlyout;
         btn.ContextRequested += (_, e) => e.Handled = true;
 
         btn.Click += OnProfileChipClick;

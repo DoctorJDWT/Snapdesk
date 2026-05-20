@@ -1,7 +1,7 @@
 """
 Regenerate ``assets/app_icon.ico`` and PPM variants (stdlib only).
 
-Run from ``layout-profiles``:
+Run from the repo root:
 
   python scripts/build_app_assets.py
 """

@@ -30,6 +30,7 @@ internal sealed class WindowPositionController
     private bool _dragging;
     private bool _isAutoHidden;
     private int _outsideDockTicks;
+    private int _flyoutSuppressDepth;
     private WindowDockEdge _dockEdge = WindowDockEdge.None;
     private RectInt32 _dockedWorkArea;
     private bool _hasDockedWorkArea;
@@ -65,6 +66,24 @@ internal sealed class WindowPositionController
             Interval = TimeSpan.FromMilliseconds(120),
         };
         _autoHideTimer.Tick += OnAutoHideTimerTick;
+    }
+
+    /// <summary>
+    /// MenuFlyout popups are separate HWNDs; pause auto-hide while any flyout is open.
+    /// </summary>
+    public void PushFlyoutSuppress()
+    {
+        _flyoutSuppressDepth++;
+        _outsideDockTicks = 0;
+        ShowAutoHiddenWindow();
+    }
+
+    public void PopFlyoutSuppress()
+    {
+        if (_flyoutSuppressDepth > 0)
+        {
+            _flyoutSuppressDepth--;
+        }
     }
 
     public bool TryGetDockedDisplay(out DisplayArea display)
@@ -287,7 +306,7 @@ internal sealed class WindowPositionController
 
     private void OnAutoHideTimerTick(object? sender, object e)
     {
-        if (_tracking || _dockEdge == WindowDockEdge.None)
+        if (_tracking || _dockEdge == WindowDockEdge.None || _flyoutSuppressDepth > 0)
         {
             return;
         }
