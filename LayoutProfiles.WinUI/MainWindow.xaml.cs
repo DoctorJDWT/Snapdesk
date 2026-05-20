@@ -20,9 +20,9 @@ public sealed partial class MainWindow : Window
 {
     private Grid _contentRoot = null!;
     private Grid _chromeHost = null!;
-    private Border _dockRevealIndicator = null!;
     private Grid _rootGrid = null!;
     private WindowPositionController? _positionController;
+    private DockRevealPillController? _dockPillController;
     private ScrollViewer _profileScrollViewer = null!;
     private Grid _profileChipHost = null!;
     private GumballGridLayout _gumballLayout = null!;
@@ -41,8 +41,6 @@ public sealed partial class MainWindow : Window
     private const double RootGridPaddingBottom = 12;
     /// <summary>Extra inset so chips are not clipped by rounding or tight layout.</summary>
     private const int MinChromeSlackPx = 16;
-    private const int AutoHidePeekPixels = 4;
-    private const int DockStateTolerancePixels = 2;
 
     /// <summary>Horizontal slack for preset snap sizing (not the resize floor).</summary>
     private const int PresetWidthSlackPx = 4;
@@ -122,6 +120,7 @@ public sealed partial class MainWindow : Window
             SubscribeToMoveResize();
 
             EnsurePositionController();
+            _dockPillController ??= new DockRevealPillController(() => AppWindowRef);
 
             StartupTrace.Write(
                 $"FinishStartup end chips={_profileChipElements.Count} "
@@ -203,9 +202,7 @@ public sealed partial class MainWindow : Window
         _rootGrid.Children.Add(_profileScrollViewer);
         _rootGrid.Children.Add(_statusText);
 
-        _dockRevealIndicator = DockRevealIndicatorHelper.Create();
         _chromeHost.Children.Add(_rootGrid);
-        _chromeHost.Children.Add(_dockRevealIndicator);
 
         _contentRoot = new Grid
         {
@@ -368,7 +365,6 @@ public sealed partial class MainWindow : Window
         _profileScrollViewer.RequestedTheme = elementTheme;
         _statusText.Foreground = palette.Muted;
         _addChip.Background = palette.AddChipBackground;
-        _dockRevealIndicator.Background = DockRevealIndicatorHelper.CreateBrush(AppTheme.IsDark);
         WindowResizePaintHelper.Apply(this, palette.Background.Color);
         if (_addChip.Content is TextBlock addLabel)
         {
@@ -473,23 +469,16 @@ public sealed partial class MainWindow : Window
         _positionController.SyncDockStateFromWindow();
     }
 
-    private void UpdateDockRevealIndicator(WindowDockEdge edge, bool isAutoHidden)
+    private void UpdateDockRevealIndicator(WindowDockEdge edge, bool isAutoHidden, DisplayArea? dockedDisplay)
     {
-        var show = isAutoHidden && edge != WindowDockEdge.None;
-        _dockRevealIndicator.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        _dockRevealIndicator.Opacity = show ? 1 : 0;
-        _dockRevealIndicator.IsHitTestVisible = false;
-        if (show)
-        {
-            Canvas.SetZIndex(_dockRevealIndicator, 1000);
-        }
-        _rootGrid.Opacity = show ? 0 : 1;
-        if (!show)
-        {
-            return;
-        }
+        _dockPillController ??= new DockRevealPillController(() => AppWindowRef);
+        _dockPillController.Update(edge, isAutoHidden, dockedDisplay);
 
-        DockRevealIndicatorHelper.ApplyLayout(_dockRevealIndicator, edge);
+        // Hide widget while rolled up; the overlay pill is the only affordance.
+        var hidden = isAutoHidden && edge != WindowDockEdge.None;
+        var opacity = hidden ? 0 : 1;
+        _chromeHost.Opacity = opacity;
+        _rootGrid.Opacity = opacity;
     }
 
     private void OnRootGridLoaded(object sender, RoutedEventArgs e)
@@ -521,6 +510,7 @@ public sealed partial class MainWindow : Window
         {
             WindowChromeHelper.RemoveMinimumTrackSize(this);
             WindowResizePaintHelper.Remove(this);
+            _dockPillController?.Close();
         }
         catch
         {
@@ -573,47 +563,21 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var appWindow = AppWindowRef;
-            var pos = appWindow.Position;
-            var size = appWindow.Size;
-            var display = DisplayArea.GetFromPoint(pos, DisplayAreaFallback.Nearest);
-            var work = display.WorkArea;
-
-            if (size.Width <= 0 || size.Height <= 0)
+            if (_positionController is null)
             {
                 return;
             }
 
-            var hiddenLeftX = work.X - size.Width + AutoHidePeekPixels;
-            var hiddenRightX = work.X + work.Width - AutoHidePeekPixels;
-            var hiddenTopY = work.Y - size.Height + AutoHidePeekPixels;
-            var hiddenBottomY = work.Y + work.Height - AutoHidePeekPixels;
-
-            if (Math.Abs(pos.X - hiddenLeftX) <= DockStateTolerancePixels)
+            DisplayArea? display = null;
+            if (_positionController.TryGetDockedDisplay(out var resolved))
             {
-                UpdateDockRevealIndicator(WindowDockEdge.Left, isAutoHidden: true);
-                return;
+                display = resolved;
             }
 
-            if (Math.Abs(pos.X - hiddenRightX) <= DockStateTolerancePixels)
-            {
-                UpdateDockRevealIndicator(WindowDockEdge.Right, isAutoHidden: true);
-                return;
-            }
-
-            if (Math.Abs(pos.Y - hiddenTopY) <= DockStateTolerancePixels)
-            {
-                UpdateDockRevealIndicator(WindowDockEdge.Top, isAutoHidden: true);
-                return;
-            }
-
-            if (Math.Abs(pos.Y - hiddenBottomY) <= DockStateTolerancePixels)
-            {
-                UpdateDockRevealIndicator(WindowDockEdge.Bottom, isAutoHidden: true);
-                return;
-            }
-
-            UpdateDockRevealIndicator(WindowDockEdge.None, isAutoHidden: false);
+            UpdateDockRevealIndicator(
+                _positionController.DockEdge,
+                _positionController.IsAutoHidden,
+                display);
         }
         catch
         {

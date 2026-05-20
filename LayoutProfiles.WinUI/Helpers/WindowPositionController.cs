@@ -16,8 +16,6 @@ namespace LayoutProfiles.WinUI.Helpers;
 internal sealed class WindowPositionController
 {
     private const int DragThresholdPixels = 2;
-    private const int DockThresholdPixels = 18;
-    private const int AutoHidePeekPixels = 4;
     private const int AutoHideRevealPixels = 6;
     private const int AutoHideHideDelayTicks = 4;
     private const int VkLButton = 0x01;
@@ -26,24 +24,30 @@ internal sealed class WindowPositionController
     private readonly UIElement _dragSurface;
     private readonly Func<AppWindow> _getAppWindow;
     private readonly Action? _onPositionChanged;
-    private readonly Action<WindowDockEdge, bool>? _onDockStateChanged;
+    private readonly Action<WindowDockEdge, bool, DisplayArea?>? _onDockStateChanged;
 
     private bool _tracking;
     private bool _dragging;
     private bool _isAutoHidden;
     private int _outsideDockTicks;
     private WindowDockEdge _dockEdge = WindowDockEdge.None;
+    private RectInt32 _dockedWorkArea;
+    private bool _hasDockedWorkArea;
     private Pointer? _activePointer;
     private PointInt32 _windowStart;
     private NativePoint _cursorStart;
     private readonly DispatcherTimer _autoHideTimer;
+
+    public WindowDockEdge DockEdge => _dockEdge;
+
+    public bool IsAutoHidden => _isAutoHidden;
 
     public WindowPositionController(
         Window window,
         UIElement dragSurface,
         Func<AppWindow> getAppWindow,
         Action? onPositionChanged = null,
-        Action<WindowDockEdge, bool>? onDockStateChanged = null)
+        Action<WindowDockEdge, bool, DisplayArea?>? onDockStateChanged = null)
     {
         _window = window;
         _dragSurface = dragSurface;
@@ -63,6 +67,14 @@ internal sealed class WindowPositionController
         _autoHideTimer.Tick += OnAutoHideTimerTick;
     }
 
+    public bool TryGetDockedDisplay(out DisplayArea display)
+    {
+        display = null!;
+        return _dockEdge != WindowDockEdge.None
+            && _hasDockedWorkArea
+            && DockDisplayHelper.TryGetDisplayByWorkArea(_dockedWorkArea, out display);
+    }
+
     /// <summary>
     /// Detect dock edge from the current window position and start auto-hide when docked.
     /// Call after restoring saved geometry so roll-up works without a manual re-dock.
@@ -72,7 +84,7 @@ internal sealed class WindowPositionController
         try
         {
             ClearAutoHideClip();
-            _dockEdge = GetDockEdge(_getAppWindow());
+            PinDockState(_getAppWindow());
             _isAutoHidden = false;
             _outsideDockTicks = 0;
             UpdateAutoHideTimer();
@@ -80,13 +92,21 @@ internal sealed class WindowPositionController
         }
         catch
         {
-            _dockEdge = WindowDockEdge.None;
-            _autoHideTimer.Stop();
+            ClearDockState();
             NotifyDockStateChanged();
         }
     }
 
-    private void NotifyDockStateChanged() => _onDockStateChanged?.Invoke(_dockEdge, _isAutoHidden);
+    private void NotifyDockStateChanged()
+    {
+        DisplayArea? display = null;
+        if (TryGetDockedDisplay(out var resolved))
+        {
+            display = resolved;
+        }
+
+        _onDockStateChanged?.Invoke(_dockEdge, _isAutoHidden, display);
+    }
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
@@ -164,7 +184,7 @@ internal sealed class WindowPositionController
                 cur,
                 new PointInt32(_windowStart.X + dx, _windowStart.Y + dy));
             appWindow.Move(target);
-            _dockEdge = GetDockEdge(appWindow);
+            PinDockState(appWindow);
             _isAutoHidden = false;
             _outsideDockTicks = 0;
             NotifyDockStateChanged();
@@ -190,20 +210,20 @@ internal sealed class WindowPositionController
         var x = Math.Clamp(target.X, work.X, Math.Max(work.X, work.X + work.Width - size.Width));
         var y = Math.Clamp(target.Y, work.Y, Math.Max(work.Y, work.Y + work.Height - size.Height));
 
-        if (Math.Abs(cursor.X - work.X) <= DockThresholdPixels)
+        if (Math.Abs(cursor.X - work.X) <= DockDisplayHelper.DockThresholdPixels)
         {
             x = work.X;
         }
-        else if (Math.Abs(cursor.X - (work.X + work.Width - 1)) <= DockThresholdPixels)
+        else if (Math.Abs(cursor.X - (work.X + work.Width - 1)) <= DockDisplayHelper.DockThresholdPixels)
         {
             x = work.X + work.Width - size.Width;
         }
 
-        if (Math.Abs(cursor.Y - work.Y) <= DockThresholdPixels)
+        if (Math.Abs(cursor.Y - work.Y) <= DockDisplayHelper.DockThresholdPixels)
         {
             y = work.Y;
         }
-        else if (Math.Abs(cursor.Y - (work.Y + work.Height - 1)) <= DockThresholdPixels)
+        else if (Math.Abs(cursor.Y - (work.Y + work.Height - 1)) <= DockDisplayHelper.DockThresholdPixels)
         {
             y = work.Y + work.Height - size.Height;
         }
@@ -248,7 +268,7 @@ internal sealed class WindowPositionController
         try
         {
             ClearAutoHideClip();
-            _dockEdge = GetDockEdge(_getAppWindow());
+            PinDockState(_getAppWindow());
             _isAutoHidden = false;
             _outsideDockTicks = 0;
             UpdateAutoHideTimer();
@@ -256,19 +276,27 @@ internal sealed class WindowPositionController
         }
         catch
         {
-            _dockEdge = WindowDockEdge.None;
-            _autoHideTimer.Stop();
+            ClearDockState();
             NotifyDockStateChanged();
         }
 
         _onPositionChanged?.Invoke();
     }
 
+    private int _idleTraceCounter;
+
     private void OnAutoHideTimerTick(object? sender, object e)
     {
         if (_tracking || _dockEdge == WindowDockEdge.None)
         {
             return;
+        }
+
+        // Every ~6s emit a heartbeat so we can see the timer is firing.
+        if ((++_idleTraceCounter % 50) == 0)
+        {
+            StartupTrace.Write(
+                $"AutoHide tick edge={_dockEdge} hidden={_isAutoHidden} outsideTicks={_outsideDockTicks}");
         }
 
         if (!NativeMethods.GetCursorPos(out var cursor))
@@ -283,6 +311,7 @@ internal sealed class WindowPositionController
             {
                 if (IsCursorOnRevealBand(appWindow, cursor, _dockEdge))
                 {
+                    StartupTrace.Write($"AutoHide reveal edge={_dockEdge} cursor=({cursor.X},{cursor.Y})");
                     ShowAutoHiddenWindow(appWindow);
                 }
 
@@ -298,11 +327,13 @@ internal sealed class WindowPositionController
             _outsideDockTicks++;
             if (_outsideDockTicks >= AutoHideHideDelayTicks)
             {
+                StartupTrace.Write($"AutoHide hide edge={_dockEdge} cursor=({cursor.X},{cursor.Y}) ticks={_outsideDockTicks}");
                 HideDockedWindow(appWindow);
             }
         }
-        catch
+        catch (Exception ex)
         {
+            StartupTrace.Write($"AutoHide tick exception {ex.GetType().Name}: {ex.Message}");
             _autoHideTimer.Stop();
         }
     }
@@ -320,7 +351,20 @@ internal sealed class WindowPositionController
     private void ShowAutoHiddenWindow(AppWindow appWindow)
     {
         ClearAutoHideClip();
-        appWindow.Move(GetVisibleDockPosition(appWindow, _dockEdge));
+        try
+        {
+            appWindow.Show(false);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (TryGetDockedDisplay(out var display))
+        {
+            appWindow.Move(DockDisplayHelper.GetVisibleDockPosition(appWindow, _dockEdge, display));
+        }
+
         _isAutoHidden = false;
         _outsideDockTicks = 0;
         NotifyDockStateChanged();
@@ -329,9 +373,23 @@ internal sealed class WindowPositionController
     private void HideDockedWindow(AppWindow appWindow)
     {
         ClearAutoHideClip();
-        appWindow.Move(GetPeekDockPosition(appWindow, _dockEdge));
+        if (TryGetDockedDisplay(out var display))
+        {
+            appWindow.Move(DockDisplayHelper.GetVisibleDockPosition(appWindow, _dockEdge, display));
+        }
+
         _isAutoHidden = true;
         _outsideDockTicks = 0;
+
+        try
+        {
+            appWindow.Hide();
+        }
+        catch
+        {
+            // ignore
+        }
+
         NotifyDockStateChanged();
     }
 
@@ -349,82 +407,52 @@ internal sealed class WindowPositionController
         }
     }
 
-    private static PointInt32 GetVisibleDockPosition(AppWindow appWindow, WindowDockEdge edge)
+    private void PinDockState(AppWindow appWindow)
     {
-        var size = appWindow.Size;
-        var display = DisplayArea.GetFromPoint(appWindow.Position, DisplayAreaFallback.Nearest);
-        var work = display.WorkArea;
-        var x = Math.Clamp(appWindow.Position.X, work.X, Math.Max(work.X, work.X + work.Width - size.Width));
-        var y = Math.Clamp(appWindow.Position.Y, work.Y, Math.Max(work.Y, work.Y + work.Height - size.Height));
-
-        return edge switch
+        var previousEdge = _dockEdge;
+        if (DockDisplayHelper.TryResolveDockedDisplay(appWindow, out var edge, out var display))
         {
-            WindowDockEdge.Left => new PointInt32(work.X, y),
-            WindowDockEdge.Right => new PointInt32(work.X + work.Width - size.Width, y),
-            WindowDockEdge.Top => new PointInt32(x, work.Y),
-            WindowDockEdge.Bottom => new PointInt32(x, work.Y + work.Height - size.Height),
-            _ => appWindow.Position,
-        };
+            _dockEdge = edge;
+            _dockedWorkArea = display.WorkArea;
+            _hasDockedWorkArea = true;
+            if (previousEdge != edge)
+            {
+                StartupTrace.Write(
+                    $"PinDockState edge={edge} work=({display.WorkArea.X},{display.WorkArea.Y}," +
+                    $"{display.WorkArea.Width}x{display.WorkArea.Height}) " +
+                    $"win=({appWindow.Position.X},{appWindow.Position.Y},{appWindow.Size.Width}x{appWindow.Size.Height})");
+            }
+
+            return;
+        }
+
+        if (previousEdge != WindowDockEdge.None)
+        {
+            var pos = appWindow.Position;
+            var size = appWindow.Size;
+            StartupTrace.Write($"PinDockState UNDOCKED win=({pos.X},{pos.Y},{size.Width}x{size.Height})");
+        }
+
+        ClearDockState();
     }
 
-    /// <summary>
-    /// Slide the window mostly off-screen, leaving only <see cref="AutoHidePeekPixels"/> on the dock edge.
-    /// Unlike <c>SetWindowRgn</c>, moving the window avoids DWM painting a border around the full rect.
-    /// </summary>
-    private static PointInt32 GetPeekDockPosition(AppWindow appWindow, WindowDockEdge edge)
+    private void ClearDockState()
     {
-        var size = appWindow.Size;
-        var display = DisplayArea.GetFromPoint(appWindow.Position, DisplayAreaFallback.Nearest);
-        var work = display.WorkArea;
-        var pos = appWindow.Position;
-        var x = Math.Clamp(pos.X, work.X, Math.Max(work.X, work.X + work.Width - size.Width));
-        var y = Math.Clamp(pos.Y, work.Y, Math.Max(work.Y, work.Y + work.Height - size.Height));
-
-        return edge switch
-        {
-            WindowDockEdge.Left => new PointInt32(work.X - size.Width + AutoHidePeekPixels, y),
-            WindowDockEdge.Right => new PointInt32(work.X + work.Width - AutoHidePeekPixels, y),
-            WindowDockEdge.Top => new PointInt32(x, work.Y - size.Height + AutoHidePeekPixels),
-            WindowDockEdge.Bottom => new PointInt32(x, work.Y + work.Height - AutoHidePeekPixels),
-            _ => pos,
-        };
+        _dockEdge = WindowDockEdge.None;
+        _hasDockedWorkArea = false;
+        _dockedWorkArea = default;
+        _autoHideTimer.Stop();
     }
 
-    private static WindowDockEdge GetDockEdge(AppWindow appWindow)
+    private bool IsCursorOnRevealBand(AppWindow appWindow, NativePoint cursor, WindowDockEdge edge)
     {
+        if (!TryGetDockedDisplay(out var display))
+        {
+            return false;
+        }
+
         var size = appWindow.Size;
         var pos = appWindow.Position;
-        var display = DisplayArea.GetFromPoint(pos, DisplayAreaFallback.Nearest);
-        var work = display.WorkArea;
-
-        if (Math.Abs(pos.X - work.X) <= DockThresholdPixels)
-        {
-            return WindowDockEdge.Left;
-        }
-
-        if (Math.Abs(pos.X - (work.X + work.Width - size.Width)) <= DockThresholdPixels)
-        {
-            return WindowDockEdge.Right;
-        }
-
-        if (Math.Abs(pos.Y - work.Y) <= DockThresholdPixels)
-        {
-            return WindowDockEdge.Top;
-        }
-
-        if (Math.Abs(pos.Y - (work.Y + work.Height - size.Height)) <= DockThresholdPixels)
-        {
-            return WindowDockEdge.Bottom;
-        }
-
-        return WindowDockEdge.None;
-    }
-
-    private static bool IsCursorOnRevealBand(AppWindow appWindow, NativePoint cursor, WindowDockEdge edge)
-    {
-        var size = appWindow.Size;
-        var pos = appWindow.Position;
-        var display = DisplayArea.GetFromPoint(new PointInt32(cursor.X, cursor.Y), DisplayAreaFallback.Nearest);
         var work = display.WorkArea;
 
         return edge switch
@@ -461,10 +489,19 @@ internal sealed class WindowPositionController
             return false;
         }
 
-        return cursor.X >= rect.Left
-            && cursor.X <= rect.Right
+        var inside = cursor.X >= rect.Left
+            && cursor.X < rect.Right
             && cursor.Y >= rect.Top
-            && cursor.Y <= rect.Bottom;
+            && cursor.Y < rect.Bottom;
+
+        if (inside && _outsideDockTicks > 0)
+        {
+            StartupTrace.Write(
+                $"AutoHide cursor re-entered cursor=({cursor.X},{cursor.Y}) " +
+                $"rect=({rect.Left},{rect.Top},{rect.Right - rect.Left}x{rect.Bottom - rect.Top})");
+        }
+
+        return inside;
     }
 
     private IntPtr WindowHandle => WindowNative.GetWindowHandle(_window);
