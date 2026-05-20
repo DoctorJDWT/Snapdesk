@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Snapdesk (Run app)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build-snapdesk-release",
+      "runtimeExecutable": "${workspaceFolder}/LayoutProfiles.WinUI/bin/x64/Release/net8.0-windows10.0.19041.0/Snapdesk.exe",
+      "cwd": "${workspaceFolder}/LayoutProfiles.WinUI/bin/x64/Release/net8.0-windows10.0.19041.0",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Snapdesk (C# debug)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-snapdesk-release",
+      "projectPath": "${workspaceFolder}/LayoutProfiles.WinUI/LayoutProfiles.WinUI.csproj",
+      "cwd": "${workspaceFolder}/LayoutProfiles.WinUI/bin/x64/Release/net8.0-windows10.0.19041.0",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    }
+  ]
+}

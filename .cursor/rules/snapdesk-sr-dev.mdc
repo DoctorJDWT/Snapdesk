@@ -1,0 +1,16 @@
+---
+description: Route Snapdesk layout-profiles changes through the snapdesk-sr-dev senior dev skill before finishing.
+alwaysApply: true
+---
+
+# Snapdesk senior dev gate
+
+For this repo (`layout-profiles` / Snapdesk):
+
+1. Read and follow the **snapdesk-sr-dev** skill (`~/.cursor/skills/snapdesk-sr-dev/SKILL.md`) on substantive changes (WinUI, Python `layout_manager.py`, launchers, `scripts/`, installer).
+2. Verify exe paths (`Snapdesk.exe` primary, `LayoutProfiles.WinUI.exe` legacy), `%LOCALAPPDATA%` data paths, and `invoke_python.ps1` bridge.
+3. Run `dotnet build LayoutProfiles.WinUI/LayoutProfiles.WinUI.csproj -c Release -p:Platform=x64` when touching C#/XAML.
+4. After substantive WinUI/UI changes, **always build and launch** so the user can verify: `powershell -NoProfile -ExecutionPolicy Bypass -File .vscode/run-snapdesk.ps1` (stops the old Snapdesk, builds Release x64, starts dev `Snapdesk.exe`).
+5. Fix issues found with minimal diffs; end with the skill's audit summary format.
+
+Do not commit unless the user explicitly requests it.

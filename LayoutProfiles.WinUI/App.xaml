@@ -1,0 +1,14 @@
+<Application
+    x:Class="LayoutProfiles.WinUI.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources>
+    <ResourceDictionary>
+      <SolidColorBrush x:Key="WidgetBackgroundBrush" Color="#FF1E1E1E" />
+      <SolidColorBrush x:Key="WidgetBorderBrush" Color="#FF2E3238" />
+      <SolidColorBrush x:Key="WidgetMutedBrush" Color="#FF9AA3AD" />
+      <SolidColorBrush x:Key="WidgetAccentBrush" Color="#FF4C8BF5" />
+      <SolidColorBrush x:Key="WidgetAddChipBackgroundBrush" Color="#FF484C54" />
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

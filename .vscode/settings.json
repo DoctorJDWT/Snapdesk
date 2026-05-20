@@ -1,0 +1,5 @@
+{
+  "debug.onTaskErrors": "showErrors",
+  "debug.openDebug": "openOnSessionStart",
+  "dotnet.defaultSolution": "Snapdesk.sln"
+}
