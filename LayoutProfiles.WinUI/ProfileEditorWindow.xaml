@@ -54,24 +54,34 @@
           Text="Select windows to include in this layout." />
     </StackPanel>
 
-    <ItemsControl
-        x:Name="WindowList"
-        Grid.Row="3">
-      <ItemsControl.ItemTemplate>
-        <DataTemplate>
-          <CheckBox
-              HorizontalAlignment="Stretch"
-              HorizontalContentAlignment="Stretch"
-              IsChecked="{Binding IsChecked, Mode=TwoWay}">
-            <TextBlock
-                Text="{Binding DisplayText}"
-                TextWrapping="WrapWholeWords"
-                TextTrimming="CharacterEllipsis"
-                MaxLines="2" />
-          </CheckBox>
-        </DataTemplate>
-      </ItemsControl.ItemTemplate>
-    </ItemsControl>
+    <ScrollViewer
+        x:Name="WindowListScroll"
+        Grid.Row="3"
+        MinHeight="120"
+        VerticalScrollBarVisibility="Auto"
+        HorizontalScrollBarVisibility="Disabled"
+        VerticalScrollMode="Auto"
+        HorizontalScrollMode="Disabled"
+        ZoomMode="Disabled">
+      <ItemsControl x:Name="WindowList">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <CheckBox
+                MinHeight="40"
+                Padding="4,6"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                IsChecked="{Binding IsChecked, Mode=TwoWay}">
+              <TextBlock
+                  Text="{Binding DisplayText}"
+                  TextWrapping="WrapWholeWords"
+                  TextTrimming="CharacterEllipsis"
+                  MaxLines="2" />
+            </CheckBox>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
 
     <TextBlock
         x:Name="EmptyWindowsText"

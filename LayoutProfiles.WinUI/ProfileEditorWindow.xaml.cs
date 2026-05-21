@@ -17,10 +17,11 @@ namespace LayoutProfiles.WinUI;
 public sealed partial class ProfileEditorWindow : Window
 {
     private const int WindowWidth = 640;
-    private const int InitialWindowHeight = 520;
     private const int MinWindowHeight = 420;
-    private const int FixedEditorHeight = 280;
-    private const int ApplicationRowHeight = 44;
+    /// <summary>Non-list chrome: heading, name, labels, buttons, padding.</summary>
+    private const int FixedEditorHeight = 300;
+    private const int ApplicationRowHeight = 48;
+    private const int MinListViewportHeight = 120;
     private const int WorkAreaInset = 80;
 
     private readonly TaskCompletionSource<ProfileEditorResult?> _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -55,7 +56,7 @@ public sealed partial class ProfileEditorWindow : Window
         AppTheme.ResolvedThemeChanged += OnResolvedThemeChanged;
         ApplyThemeFromApp();
 
-        ConfigureWindowChrome(InitialWindowHeight);
+        ConfigureWindowChrome(MinWindowHeight);
     }
 
     public static Task<ProfileEditorResult?> ShowCreateAsync()
@@ -101,7 +102,7 @@ public sealed partial class ProfileEditorWindow : Window
     }
 
     private void ConfigureWindowChrome(int height) =>
-        SecondaryWindowPlacement.Apply(this, SecondaryWindowPlacement.ProfileEditor, WindowWidth, height);
+        SecondaryWindowPlacement.Apply(this, SecondaryWindowPlacement.ProfileEditor, WindowWidth, height, resizable: true);
 
     private AppWindow GetAppWindow()
     {
@@ -181,6 +182,7 @@ public sealed partial class ProfileEditorWindow : Window
             WindowList.ItemsSource = _pickerItems;
             EmptyWindowsText.Visibility = _pickerItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             ResizeToFitApplicationList();
+            WindowListScroll.ChangeView(null, 0, null, disableAnimation: true);
         }
         catch (Exception ex)
         {
@@ -195,8 +197,8 @@ public sealed partial class ProfileEditorWindow : Window
 
     private void ResizeToFitApplicationList()
     {
-        var itemCount = Math.Max(1, _pickerItems.Count);
-        var desiredHeight = Math.Max(MinWindowHeight, FixedEditorHeight + itemCount * ApplicationRowHeight);
+        var itemCount = _pickerItems.Count;
+        var contentListHeight = Math.Max(MinListViewportHeight, itemCount * ApplicationRowHeight);
 
         try
         {
@@ -207,8 +209,15 @@ public sealed partial class ProfileEditorWindow : Window
                 pos.X + Math.Max(1, size.Width) / 2,
                 pos.Y + Math.Max(1, size.Height) / 2);
             var display = DisplayArea.GetFromPoint(center, DisplayAreaFallback.Nearest);
-            var maxHeight = Math.Max(MinWindowHeight, display.WorkArea.Height - WorkAreaInset);
-            var height = Math.Min(desiredHeight, maxHeight);
+            var maxWindowHeight = Math.Max(MinWindowHeight, display.WorkArea.Height - WorkAreaInset);
+            var maxListHeight = Math.Max(MinListViewportHeight, maxWindowHeight - FixedEditorHeight);
+            var listViewportHeight = Math.Min(contentListHeight, maxListHeight);
+            var height = Math.Max(MinWindowHeight, FixedEditorHeight + listViewportHeight);
+
+            WindowListScroll.VerticalScrollBarVisibility = itemCount > 0 && contentListHeight > maxListHeight
+                ? Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Visible
+                : Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Auto;
+
             var (width, clampedHeight, x, y) = WindowGeometryHelper.ClampToVirtualScreen(
                 WindowWidth,
                 height,
@@ -222,7 +231,7 @@ public sealed partial class ProfileEditorWindow : Window
         }
         catch
         {
-            ConfigureWindowChrome(desiredHeight);
+            ConfigureWindowChrome(Math.Max(MinWindowHeight, FixedEditorHeight + contentListHeight));
         }
     }
 
