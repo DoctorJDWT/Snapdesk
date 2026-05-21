@@ -33,6 +33,7 @@ internal static class WindowChromeHelper
     private const int DwmwcpRound = 2;
     private const int GwlStyle = -16;
     private const int GwlExstyle = -20;
+    private const int GwlHwndparent = -8;
     private const nint WsCaption = 0x00C00000;
     private const nint WsThickFrame = 0x00040000;
     private const nint WsBorder = 0x00800000;
@@ -203,6 +204,38 @@ internal static class WindowChromeHelper
 
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
     private static extern nint SetWindowLongPtr(IntPtr hWnd, int nIndex, nint dwNewLong);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    /// <summary>
+    /// Show a secondary dialog above the widget. The main window uses WS_EX_TOOLWINDOW,
+    /// which otherwise leaves normal dialogs underneath it.
+    /// </summary>
+    public static void ActivateOwnedDialog(Window dialog, Window? owner)
+    {
+        try
+        {
+            var dialogHwnd = WindowNative.GetWindowHandle(dialog);
+            if (owner is not null)
+            {
+                var ownerHwnd = WindowNative.GetWindowHandle(owner);
+                _ = SetWindowLongPtr(dialogHwnd, GwlHwndparent, ownerHwnd);
+            }
+
+            _ = BringWindowToTop(dialogHwnd);
+            _ = SetForegroundWindow(dialogHwnd);
+        }
+        catch
+        {
+            // ignore Win32 failures
+        }
+
+        dialog.Activate();
+    }
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(

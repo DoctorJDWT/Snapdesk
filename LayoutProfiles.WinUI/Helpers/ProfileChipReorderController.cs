@@ -132,8 +132,7 @@ internal sealed class ProfileChipReorderController
         }
 
         var pos = e.GetCurrentPoint(_chipHost).Position;
-        BeginTracking(chip, e.Pointer, pos);
-        e.Handled = true;
+        ArmTracking(chip, e.Pointer, pos);
     }
 
     private void OnHostPointerMoved(PointerRoutedEventArgs e)
@@ -147,10 +146,16 @@ internal sealed class ProfileChipReorderController
         _lastPointerPosition = pos;
         _hasPointerPosition = true;
         ProcessPointerPosition(pos);
-        e.Handled = true;
+        if (_dragging)
+        {
+            e.Handled = true;
+        }
     }
 
-    private void BeginTracking(Button chip, Pointer pointer, Point positionInHost)
+    /// <summary>
+    /// Track a potential drag without capturing the pointer yet so a simple click still reaches the chip Button.
+    /// </summary>
+    private void ArmTracking(Button chip, Pointer pointer, Point positionInHost)
     {
         EndTracking();
 
@@ -165,21 +170,26 @@ internal sealed class ProfileChipReorderController
         _insertBeforeIndex = -1;
         _suppressClickFor = null;
 
-        // ButtonBase implicitly captures the pointer in its own PointerPressed handler. When we
-        // call CapturePointer below it transfers capture to the chip host and synchronously fires
-        // PointerCaptureLost on the chip; that event bubbles up to our chip-host handler. Without
-        // this latch the spurious lost event would cancel tracking before any drag begins.
+        CompositionTarget.Rendering += OnCompositionRendering;
+    }
+
+    private void EnsureDragPointerCapture()
+    {
+        if (_dragging || _activePointer is null)
+        {
+            return;
+        }
+
+        // ButtonBase may already hold capture; steal it only once a drag is confirmed.
         _suppressNextCaptureLost = true;
         try
         {
-            _chipHost.CapturePointer(pointer);
+            _chipHost.CapturePointer(_activePointer);
         }
         finally
         {
             _suppressNextCaptureLost = false;
         }
-
-        CompositionTarget.Rendering += OnCompositionRendering;
     }
 
     private void OnHostPointerCaptureLost(PointerRoutedEventArgs e)
@@ -238,6 +248,7 @@ internal sealed class ProfileChipReorderController
 
             if (_activeChip is not null)
             {
+                EnsureDragPointerCapture();
                 EnterDragMode(_activeChip);
             }
         }

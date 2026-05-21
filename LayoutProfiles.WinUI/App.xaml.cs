@@ -7,6 +7,8 @@ public partial class App : Application
 {
     private Window? _window;
 
+    public static Window? MainWindowInstance => (Current as App)?._window;
+
     public App()
     {
         StartupTrace.Write("App.ctor begin");

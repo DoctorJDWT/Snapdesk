@@ -61,14 +61,14 @@ public sealed partial class ProfileEditorWindow : Window
     public static Task<ProfileEditorResult?> ShowCreateAsync()
     {
         var window = new ProfileEditorWindow(ProfileEditorMode.Create, string.Empty, profilePath: null);
-        window.Activate();
+        WindowChromeHelper.ActivateOwnedDialog(window, App.MainWindowInstance);
         return window._tcs.Task;
     }
 
     public static Task<ProfileEditorResult?> ShowEditAsync(ProfileRow row)
     {
         var window = new ProfileEditorWindow(ProfileEditorMode.Edit, row.DisplayName, row.FilePath);
-        window.Activate();
+        WindowChromeHelper.ActivateOwnedDialog(window, App.MainWindowInstance);
         return window._tcs.Task;
     }
 

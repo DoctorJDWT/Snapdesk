@@ -1231,6 +1231,7 @@ public sealed partial class MainWindow : Window
             Background = addBg,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
         };
         _addChipIcon = new FontIcon
         {
@@ -1239,6 +1240,7 @@ public sealed partial class MainWindow : Window
             Foreground = accent,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
         };
         var face = new Grid
         {
@@ -1246,6 +1248,7 @@ public sealed partial class MainWindow : Window
             Height = ProfileChipSize,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
         };
         face.Children.Add(_addChipFace);
         face.Children.Add(_addChipIcon);
@@ -1312,7 +1315,6 @@ public sealed partial class MainWindow : Window
         chipFlyout.Opening += (_, _) => _positionController?.PushFlyoutSuppress();
         chipFlyout.Closed += (_, _) => _positionController?.PopFlyoutSuppress();
         btn.ContextFlyout = chipFlyout;
-        btn.ContextRequested += (_, e) => e.Handled = true;
 
         btn.Click += OnProfileChipClick;
 
