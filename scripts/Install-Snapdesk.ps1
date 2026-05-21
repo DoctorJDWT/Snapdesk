@@ -4,6 +4,7 @@
 
 param(
     [string] $InstallDir,
+    [string] $ExpectedVersion,
     [switch] $AddToStartup,
     [switch] $NoPrompt,
     [switch] $LaunchAfterInstall,
@@ -241,6 +242,50 @@ function Start-InstalledSnapdesk([string] $Dir) {
     }
 
     return $false
+}
+
+function Get-SnapdeskFileVersion([string] $ExePath) {
+    if ([string]::IsNullOrWhiteSpace($ExePath) -or -not (Test-Path -LiteralPath $ExePath)) {
+        return $null
+    }
+    try {
+        $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($ExePath)
+        foreach ($candidate in @($info.FileVersion, $info.ProductVersion)) {
+            if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+            $normalized = $candidate.Trim()
+            $plus = $normalized.IndexOf('+')
+            if ($plus -ge 0) { $normalized = $normalized.Substring(0, $plus) }
+            $dash = $normalized.IndexOf('-')
+            if ($dash -ge 0) { $normalized = $normalized.Substring(0, $dash) }
+            $version = $null
+            if ([version]::TryParse($normalized, [ref]$version)) {
+                return $version
+            }
+        }
+    }
+    catch {
+        return $null
+    }
+    return $null
+}
+
+function Test-InstalledVersionMeetsExpected([string] $Dir, [string] $Expected) {
+    if ([string]::IsNullOrWhiteSpace($Expected)) {
+        return $true
+    }
+    $expectedVersion = $null
+    if (-not [version]::TryParse($Expected.Trim(), [ref]$expectedVersion)) {
+        return $true
+    }
+    $exePath = Find-SnapdeskExecutable $Dir
+    if (-not $exePath) {
+        return $false
+    }
+    $installed = Get-SnapdeskFileVersion $exePath
+    if (-not $installed) {
+        return $false
+    }
+    return $installed -ge $expectedVersion
 }
 
 function Find-SnapdeskExecutable([string] $Dir) {
@@ -737,6 +782,18 @@ if exist "%~dp0LayoutProfiles.WinUI.exe" (
 echo Snapdesk executable not found in %~dp0
 exit /b 1
 '@ | Set-Content -LiteralPath (Join-Path $installDir "Snapdesk.cmd") -Encoding ASCII
+
+if (-not (Test-InstalledVersionMeetsExpected $installDir $ExpectedVersion)) {
+    $exePathForVersion = Find-SnapdeskExecutable $installDir
+    $found = if ($exePathForVersion) { Get-SnapdeskFileVersion $exePathForVersion } else { $null }
+    $foundLabel = if ($found) { $found.ToString(3) } else { "unknown" }
+    Show-Message @"
+Snapdesk files were copied but the installed version ($foundLabel) does not match the expected update ($ExpectedVersion).
+
+Close any Snapdesk processes, then run Install Snapdesk.cmd again or download the latest release from GitHub.
+"@ "Snapdesk Setup" ([System.Windows.Forms.MessageBoxButtons]::OK) ([System.Windows.Forms.MessageBoxIcon]::Warning)
+    exit 1
+}
 
 # --- Shortcuts ---
 $iconPath = Join-Path $installDir "assets\app_icon.ico"

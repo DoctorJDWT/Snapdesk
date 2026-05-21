@@ -65,7 +65,7 @@ public sealed partial class MainWindow : Window
     private readonly PythonBridge _python;
     private readonly GitHubReleaseUpdateChecker _updateChecker = new();
     private readonly AutoUpdateCheckService _autoUpdateCheck;
-    private readonly UpdateInstallService _updateInstallService = new();
+    private readonly UpdateInstallService _updateInstallService;
     private readonly WindowGeometryController _geometryController;
     private Dictionary<string, System.Text.Json.JsonElement> _settingsCache = new();
     private bool _busy;
@@ -94,6 +94,7 @@ public sealed partial class MainWindow : Window
         // MainWindow.xaml is an empty shell; UI is built in BuildUi() (no InitializeComponent — avoids IDE CS0103 when XAML codegen isn’t loaded).
         _profiles = new ProfileService();
         _settings = new SettingsService();
+        _updateInstallService = new UpdateInstallService(_settings);
         _autoUpdateCheck = new AutoUpdateCheckService(_settings, _updateChecker);
         _python = new PythonBridge();
         _geometryController = new WindowGeometryController(
@@ -148,6 +149,7 @@ public sealed partial class MainWindow : Window
                 $"FinishStartup end chips={_profileChipElements.Count} "
                 + $"window={AppWindowRef.Size.Width}x{AppWindowRef.Size.Height}");
 
+            UpdateInstallService.ShowUpdateCompleteIfPending(_settings);
             ScheduleBackgroundUpdateCheck();
         }
         catch (Exception ex)
@@ -499,7 +501,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (_cachedUpdateResult is { Succeeded: true, IsUpdateAvailable: true, LatestVersion: { } latest })
+        if (_cachedUpdateResult is { Succeeded: true, IsUpdateAvailable: true, LatestVersion: { } latest }
+            && !ShouldSuppressUpdatePrompt(_cachedUpdateResult))
         {
             _updateAvailableItem.Text = $"Update available ({latest})";
             _updateAvailableItem.Visibility = Visibility.Visible;
@@ -508,6 +511,12 @@ public sealed partial class MainWindow : Window
 
         _updateAvailableItem.Visibility = Visibility.Collapsed;
     }
+
+    private bool ShouldSuppressUpdatePrompt(ReleaseCheckResult result) =>
+        SettingsService.ShouldSuppressUpdatePrompt(
+            _settingsCache,
+            result.CurrentVersion,
+            result.LatestVersion);
 
     private void ScheduleBackgroundUpdateCheck()
     {
@@ -553,7 +562,7 @@ public sealed partial class MainWindow : Window
             {
                 ShowManualUpdateCheckDialogs(result);
             }
-            else if (result.Succeeded && result.IsUpdateAvailable)
+            else if (result.Succeeded && result.IsUpdateAvailable && !ShouldSuppressUpdatePrompt(result))
             {
                 PromptInstallUpdateOnUiThread(result);
             }
@@ -628,11 +637,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (!result.IsUpdateAvailable)
+        if (!result.IsUpdateAvailable || ShouldSuppressUpdatePrompt(result))
         {
             NativeMessageBox.Show(
                 "Snapdesk",
-                result.StatusMessage,
+                result.IsUpdateAvailable && ShouldSuppressUpdatePrompt(result)
+                    ? $"You're on the latest version ({result.CurrentVersion})."
+                    : result.StatusMessage,
                 NativeMessageBox.MbOk | NativeMessageBox.MbIconInformation);
             return;
         }
@@ -692,7 +703,8 @@ public sealed partial class MainWindow : Window
 
     private void OnUpdateAvailableClick(object sender, RoutedEventArgs e)
     {
-        if (_cachedUpdateResult is { Succeeded: true, IsUpdateAvailable: true })
+        if (_cachedUpdateResult is { Succeeded: true, IsUpdateAvailable: true }
+            && !ShouldSuppressUpdatePrompt(_cachedUpdateResult))
         {
             PromptInstallUpdateOnUiThread(_cachedUpdateResult);
             return;

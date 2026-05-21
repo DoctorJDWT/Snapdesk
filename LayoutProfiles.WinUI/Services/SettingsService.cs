@@ -68,6 +68,11 @@ public sealed class SettingsService
         settings.TryGetValue("gui_run_on_startup", out var el)
         && el.ValueKind == JsonValueKind.True;
 
+    public const string LastInstalledVersionKey = "last_installed_version";
+    public const string LastInstalledVersionUtcKey = "last_installed_version_utc";
+
+    public static readonly TimeSpan InstallUpdateSuppressCooldown = TimeSpan.FromHours(48);
+
     public void SaveLastUpdateCheckUtc(DateTimeOffset utcNow)
     {
         MergeAndSave(new Dictionary<string, object?>
@@ -76,6 +81,64 @@ public sealed class SettingsService
                 "o",
                 CultureInfo.InvariantCulture),
         });
+    }
+
+    public void SaveLastInstalledVersionAttempt(Version targetVersion)
+    {
+        MergeAndSave(new Dictionary<string, object?>
+        {
+            [LastInstalledVersionKey] = targetVersion.ToString(3),
+            [LastInstalledVersionUtcKey] = DateTimeOffset.UtcNow.UtcDateTime.ToString(
+                "o",
+                CultureInfo.InvariantCulture),
+        });
+    }
+
+    public static bool ShouldSuppressUpdatePrompt(
+        IReadOnlyDictionary<string, JsonElement> settings,
+        Version current,
+        Version? latest)
+    {
+        if (latest is null)
+        {
+            return false;
+        }
+
+        if (current >= latest)
+        {
+            return true;
+        }
+
+        if (!settings.TryGetValue(LastInstalledVersionKey, out var versionEl)
+            || versionEl.ValueKind != JsonValueKind.String
+            || !Version.TryParse(versionEl.GetString(), out var installedTarget))
+        {
+            return false;
+        }
+
+        if (installedTarget < latest)
+        {
+            return false;
+        }
+
+        if (!settings.TryGetValue(LastInstalledVersionUtcKey, out var utcEl)
+            || utcEl.ValueKind != JsonValueKind.String)
+        {
+            return installedTarget >= latest;
+        }
+
+        var raw = utcEl.GetString();
+        if (string.IsNullOrWhiteSpace(raw)
+            || !DateTimeOffset.TryParse(
+                raw,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var installedUtc))
+        {
+            return installedTarget >= latest;
+        }
+
+        return DateTimeOffset.UtcNow - installedUtc < InstallUpdateSuppressCooldown;
     }
 
     public WidgetSizePreset GetWidgetSizePreset(Dictionary<string, JsonElement> settings)

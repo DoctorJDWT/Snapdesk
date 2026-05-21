@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Http;
+using System.Text.Json;
 using LayoutProfiles.WinUI.Helpers;
 using Microsoft.UI.Xaml;
 using Windows.System;
@@ -12,6 +13,13 @@ public sealed class UpdateInstallService
 {
     private static readonly HttpClient Http = CreateHttpClient();
 
+    private readonly SettingsService _settings;
+
+    public UpdateInstallService(SettingsService? settings = null)
+    {
+        _settings = settings ?? new SettingsService();
+    }
+
     public async Task<bool> TryInstallUpdateAsync(
         ReleaseCheckResult result,
         CancellationToken cancellationToken = default)
@@ -20,6 +28,14 @@ public sealed class UpdateInstallService
         {
             ShowInstallFailedWithGithubFallback(
                 "The release does not include a Snapdesk-Setup.zip download.",
+                result.ReleasePageUrl);
+            return false;
+        }
+
+        if (result.LatestVersion is null)
+        {
+            ShowInstallFailedWithGithubFallback(
+                "The release version could not be determined.",
                 result.ReleasePageUrl);
             return false;
         }
@@ -43,12 +59,22 @@ public sealed class UpdateInstallService
                     scriptPath);
             }
 
+            var installDir = ResolveInstallDir();
+            var expectedVersion = result.LatestVersion.ToString(3);
+            if (!VerifyPayloadVersion(extractDir, expectedVersion))
+            {
+                throw new InvalidOperationException(
+                    $"Downloaded update does not contain version {expectedVersion}. Try again later or install manually from GitHub.");
+            }
+
+            _settings.SaveLastInstalledVersionAttempt(result.LatestVersion);
+
             NativeMessageBox.Show(
                 "Snapdesk",
-                "Installing update… Snapdesk will close.",
+                $"Installing update {expectedVersion}… Snapdesk will close and restart.",
                 NativeMessageBox.MbOk | NativeMessageBox.MbIconInformation);
 
-            LaunchInstallDetached(scriptPath, ResolveInstallDir(), Environment.ProcessId);
+            LaunchInstallDetached(scriptPath, installDir, Environment.ProcessId, expectedVersion);
             ExitApplication();
             return true;
         }
@@ -68,6 +94,21 @@ public sealed class UpdateInstallService
         }
     }
 
+    public static bool TryReadInstalledExeVersion(string installDir, out Version version)
+    {
+        version = new Version(1, 0, 0);
+        foreach (var name in new[] { "Snapdesk.exe", "LayoutProfiles.WinUI.exe" })
+        {
+            var path = Path.Combine(installDir, name);
+            if (AppVersion.TryGetVersionFromFile(path, out version))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static void ShowInstallFailedWithGithubFallback(string message, string releasePageUrl)
     {
         var open = NativeMessageBox.Show(
@@ -78,6 +119,28 @@ public sealed class UpdateInstallService
         {
             _ = OpenReleasePageAsync(releasePageUrl);
         }
+    }
+
+    public static void ShowUpdateCompleteIfPending(SettingsService settings)
+    {
+        var loaded = settings.Load();
+        if (!loaded.TryGetValue(SettingsService.LastInstalledVersionKey, out var versionEl)
+            || versionEl.ValueKind != JsonValueKind.String
+            || !Version.TryParse(versionEl.GetString(), out var target))
+        {
+            return;
+        }
+
+        var current = AppVersion.Current;
+        if (current < target)
+        {
+            return;
+        }
+
+        NativeMessageBox.Show(
+            "Snapdesk",
+            $"Snapdesk was updated to version {AppVersion.Display}.",
+            NativeMessageBox.MbOk | NativeMessageBox.MbIconInformation);
     }
 
     private static async Task OpenReleasePageAsync(string url)
@@ -132,11 +195,37 @@ public sealed class UpdateInstallService
         }
     }
 
-    private static void LaunchInstallDetached(string scriptPath, string installDir, int waitPid)
+    private static bool VerifyPayloadVersion(string extractDir, string expectedVersion)
+    {
+        var distDir = Path.Combine(extractDir, "dist", "Snapdesk");
+        if (!Directory.Exists(distDir))
+        {
+            return false;
+        }
+
+        if (!TryReadInstalledExeVersion(distDir, out var payloadVersion))
+        {
+            return false;
+        }
+
+        if (!Version.TryParse(expectedVersion, out var expected))
+        {
+            return false;
+        }
+
+        return payloadVersion >= expected;
+    }
+
+    private static void LaunchInstallDetached(
+        string scriptPath,
+        string installDir,
+        int waitPid,
+        string expectedVersion)
     {
         var arguments =
             $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\" " +
-            $"-NoPrompt -InstallDir \"{installDir}\" -ProcessId {waitPid} -LaunchAfterInstall";
+            $"-NoPrompt -InstallDir \"{installDir}\" -ProcessId {waitPid} -LaunchAfterInstall " +
+            $"-ExpectedVersion \"{expectedVersion}\"";
 
         _ = Process.Start(new ProcessStartInfo
         {
