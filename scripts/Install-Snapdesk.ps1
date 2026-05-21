@@ -260,16 +260,30 @@ function Resolve-InstallDirectory([string] $SelectedPath) {
     return Join-Path $path "Snapdesk"
 }
 
+function Ensure-FolderDialogPath([string] $Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+    $full = [System.IO.Path]::GetFullPath($Path.Trim())
+    if (-not (Test-Path -LiteralPath $full)) {
+        New-Item -ItemType Directory -Path $full -Force | Out-Null
+    }
+    return $full
+}
+
 function Select-InstallDirectory([string] $SuggestedPath) {
     $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
     $dialog.Description = "Choose where to install Snapdesk. A Snapdesk folder is created inside the folder you pick unless you select an existing Snapdesk install folder."
     $dialog.ShowNewFolderButton = $true
-    $parent = Split-Path $SuggestedPath -Parent
-    if ($parent -and (Test-Path -LiteralPath $parent)) {
-        $dialog.SelectedPath = $parent
+    $initialPath = if ([string]::IsNullOrWhiteSpace($SuggestedPath)) {
+        Get-DefaultInstallDir
     }
-    elseif (Test-Path -LiteralPath $SuggestedPath) {
-        $dialog.SelectedPath = $SuggestedPath
+    else {
+        Resolve-InstallDirectory $SuggestedPath
+    }
+    $initialPath = Ensure-FolderDialogPath $initialPath
+    if ($initialPath) {
+        $dialog.SelectedPath = $initialPath
     }
     else {
         $dialog.SelectedPath = $env:USERPROFILE
