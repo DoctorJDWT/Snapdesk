@@ -23,8 +23,8 @@ public partial class App : Application
         {
             StartupTrace.Write("OnLaunched begin");
             // BuildUi runs in MainWindow ctor before FinishStartup; palette must exist in published builds
-            // where App.xaml resources may not be merged yet.
-            AppTheme.Initialize(ThemePreference.Dark);
+            // where App.xaml resources may not be merged yet. System until settings load (FinishStartup).
+            AppTheme.Initialize(ThemePreference.System);
             var main = new MainWindow();
             _window = main;
             StartupTrace.Write("MainWindow created");
