@@ -55,7 +55,7 @@ function Stop-SnapdeskProcesses {
     )
 
     foreach ($image in @("Snapdesk.exe", "LayoutProfiles.WinUI.exe")) {
-        & taskkill.exe /F /IM $image /T 2>$null | Out-Null
+        cmd.exe /c "taskkill /F /IM $image /T >nul 2>&1" | Out-Null
     }
 
     if (-not [string]::IsNullOrWhiteSpace($InstallDir)) {
@@ -90,7 +90,7 @@ function Stop-SnapdeskProcesses {
                         [string]::Equals($exePath, $root, [System.StringComparison]::OrdinalIgnoreCase)
                 } |
                 ForEach-Object {
-                    & taskkill.exe /F /PID $_.ProcessId /T 2>$null | Out-Null
+                    cmd.exe /c "taskkill /F /PID $($_.ProcessId) /T >nul 2>&1" | Out-Null
                 }
         }
         catch {
@@ -106,7 +106,7 @@ function Stop-SnapdeskProcesses {
             }
             Start-Sleep -Milliseconds 250
         }
-        & taskkill.exe /F /PID $WaitProcessId /T 2>$null | Out-Null
+        cmd.exe /c "taskkill /F /PID $WaitProcessId /T >nul 2>&1" | Out-Null
     }
 
     Start-Sleep -Milliseconds 600
