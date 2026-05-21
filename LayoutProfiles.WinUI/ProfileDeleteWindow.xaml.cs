@@ -63,6 +63,8 @@ public sealed partial class ProfileDeleteWindow : Window
         ProfileNameText.Foreground = palette.Primary;
         ProfileMetaText.Foreground = palette.Muted;
         MessageText.Foreground = palette.Muted;
+        DeleteButton.Background = palette.Accent;
+        DeleteButton.Foreground = palette.Primary;
 
         try
         {

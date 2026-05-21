@@ -118,7 +118,6 @@
       <Button
           x:Name="SaveButton"
           Content="Save"
-          Style="{StaticResource AccentButtonStyle}"
           Click="OnSaveClick" />
     </StackPanel>
   </Grid>

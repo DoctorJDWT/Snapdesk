@@ -64,7 +64,6 @@
           x:Name="DeleteButton"
           MinWidth="88"
           Content="Delete"
-          Style="{StaticResource AccentButtonStyle}"
           Click="OnDeleteClick" />
     </StackPanel>
   </Grid>

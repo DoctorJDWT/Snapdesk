@@ -91,6 +91,8 @@ public sealed partial class ProfileEditorWindow : Window
         ApplicationsLabelText.Foreground = palette.Primary;
         WindowsHintText.Foreground = palette.Muted;
         EmptyWindowsText.Foreground = palette.Muted;
+        SaveButton.Background = palette.Accent;
+        SaveButton.Foreground = palette.Primary;
 
         try
         {
