@@ -469,11 +469,17 @@ function Show-IFileOpenFolderPicker([string] $Title, [string] $InitialPath) {
     return [Snapdesk.InstallFolderPicker]::Show($Title, $InitialPath)
 }
 
+function Set-ObjectPropertyIfPresent($Object, [string] $Name, $Value) {
+    if ($null -ne $Object.PSObject.Properties[$Name]) {
+        $Object.$Name = $Value
+    }
+}
+
 function Show-LegacyFolderBrowserPicker([string] $Title, [string] $InitialPath) {
     $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
     $dialog.Description = $Title
-    $dialog.UseDescriptionForTitle = $true
-    $dialog.AutoUpgradeEnabled = $true
+    Set-ObjectPropertyIfPresent $dialog 'UseDescriptionForTitle' $true
+    Set-ObjectPropertyIfPresent $dialog 'AutoUpgradeEnabled' $true
     if (-not [string]::IsNullOrWhiteSpace($InitialPath) -and (Test-Path -LiteralPath $InitialPath)) {
         $dialog.SelectedPath = $InitialPath
     }
