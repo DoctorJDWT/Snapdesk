@@ -17,6 +17,7 @@ internal sealed class DockRevealPillWindow : Window
 {
     /// <summary>Distance from the monitor work-area edge to the pill (into the desktop).</summary>
     public const int EdgeInsetPx = 6;
+    private const int EdgeBandPx = EdgeInsetPx * 2 + (int)DockRevealIndicatorHelper.PillThick;
 
     private readonly Border _pill;
     private WindowDockEdge _edge = WindowDockEdge.Top;
@@ -29,7 +30,7 @@ internal sealed class DockRevealPillWindow : Window
         _edge = WindowDockEdge.Top;
         var (clientW, clientH) = GetClientSize(_edge);
         _pill = DockRevealIndicatorHelper.Create();
-        DockRevealIndicatorHelper.ApplyLayout(_pill, _edge);
+        DockRevealIndicatorHelper.ApplyLayout(_pill, _edge, EdgeInsetPx);
 
         var root = new Grid
         {
@@ -53,7 +54,7 @@ internal sealed class DockRevealPillWindow : Window
         var work = display.WorkArea;
 
         var (clientW, clientH) = GetClientSize(edge);
-        DockRevealIndicatorHelper.ApplyLayout(_pill, edge);
+        DockRevealIndicatorHelper.ApplyLayout(_pill, edge, EdgeInsetPx);
 
         if (Content is FrameworkElement root)
         {
@@ -120,8 +121,8 @@ internal sealed class DockRevealPillWindow : Window
 
     private static (int Width, int Height) GetClientSize(WindowDockEdge edge) =>
         edge is WindowDockEdge.Left or WindowDockEdge.Right
-            ? ((int)DockRevealIndicatorHelper.PillThick, (int)DockRevealIndicatorHelper.PillLong)
-            : ((int)DockRevealIndicatorHelper.PillLong, (int)DockRevealIndicatorHelper.PillThick);
+            ? (EdgeBandPx, (int)DockRevealIndicatorHelper.PillLong)
+            : ((int)DockRevealIndicatorHelper.PillLong, EdgeBandPx);
 
     private static PointInt32 ComputeScreenPosition(
         WindowDockEdge edge,
@@ -134,22 +135,26 @@ internal sealed class DockRevealPillWindow : Window
         var centerX = mainPos.X + mainSize.Width / 2;
         var centerY = mainPos.Y + mainSize.Height / 2;
 
-        return edge switch
+        var point = edge switch
         {
             WindowDockEdge.Top => new PointInt32(
                 centerX - clientW / 2,
-                work.Y + EdgeInsetPx),
+                work.Y),
             WindowDockEdge.Bottom => new PointInt32(
                 centerX - clientW / 2,
-                work.Y + work.Height - clientH - EdgeInsetPx),
+                work.Y + work.Height - clientH),
             WindowDockEdge.Left => new PointInt32(
-                work.X + EdgeInsetPx,
+                work.X,
                 centerY - clientH / 2),
             WindowDockEdge.Right => new PointInt32(
-                work.X + work.Width - clientW - EdgeInsetPx,
+                work.X + work.Width - clientW,
                 centerY - clientH / 2),
             _ => mainPos,
         };
+
+        var x = Math.Clamp(point.X, work.X, Math.Max(work.X, work.X + work.Width - clientW));
+        var y = Math.Clamp(point.Y, work.Y, Math.Max(work.Y, work.Y + work.Height - clientH));
+        return new PointInt32(x, y);
     }
 
     private static class NativeMethods

@@ -1,6 +1,6 @@
 namespace LayoutProfiles.WinUI.Models;
 
-public sealed record PickableWindow(string ExePath, string Title)
+public sealed record PickableWindow(string ExePath, string Title, string? BrowserUrl = null)
 {
     public string Key => $"{ExePath.ToLowerInvariant()}|{Title}";
 

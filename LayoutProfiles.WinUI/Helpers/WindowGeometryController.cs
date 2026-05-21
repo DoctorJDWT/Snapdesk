@@ -56,31 +56,29 @@ internal sealed class WindowGeometryController
 
         _restoreAttempted = true;
         var preset = _settings.GetWidgetSizePreset(_getSettingsCache());
-        if (preset == WidgetSizePreset.Custom && TryApplySavedGeometry())
+        if (preset == WidgetSizePreset.Custom)
         {
-            StartupTrace.Write($"Restored window geometry {_lastSavedGeometry}");
+            preset = WidgetSizePreset.OneByOne;
+        }
+
+        if (TryGetSavedPosition(out var x, out var y))
+        {
+            try
+            {
+                _getAppWindow().Move(new PointInt32(x, y));
+            }
+            catch
+            {
+                // ignore
+            }
         }
         else
         {
-            if (TryGetSavedPosition(out var x, out var y))
-            {
-                try
-                {
-                    _getAppWindow().Move(new PointInt32(x, y));
-                }
-                catch
-                {
-                    // ignore
-                }
-            }
-            else
-            {
-                TrySetDefaultWindowSize(defaultWidth, defaultHeight);
-            }
-
-            applyPreset(preset, false);
-            StartupTrace.Write($"Applied widget size preset {WidgetSizePresets.ToSettingsValue(preset)}");
+            TrySetDefaultWindowSize(defaultWidth, defaultHeight);
         }
+
+        applyPreset(preset, false);
+        StartupTrace.Write($"Applied widget size preset {WidgetSizePresets.ToSettingsValue(preset)}");
 
         _readyForPersist = true;
         return preset;

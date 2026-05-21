@@ -348,14 +348,15 @@ internal sealed class ProfileChipReorderController
 
     private void UpdateInsertionLine(int insertBeforeIndex)
     {
-        if (!TryGetInsertionLineBounds(insertBeforeIndex, out var x, out var y, out var width))
+        if (!TryGetInsertionLineBounds(insertBeforeIndex, out var x, out var y, out var width, out var height))
         {
             HideInsertionLine();
             return;
         }
 
         _insertionLine.Margin = new Thickness(x, y, 0, 0);
-        _insertionLine.Width = Math.Max(8, width);
+        _insertionLine.Width = Math.Max(2, width);
+        _insertionLine.Height = Math.Max(2, height);
         _insertionLine.Visibility = Visibility.Visible;
     }
 
@@ -364,9 +365,14 @@ internal sealed class ProfileChipReorderController
         _insertionLine.Visibility = Visibility.Collapsed;
     }
 
-    private bool TryGetInsertionLineBounds(int insertBeforeIndex, out double x, out double y, out double width)
+    private bool TryGetInsertionLineBounds(
+        int insertBeforeIndex,
+        out double x,
+        out double y,
+        out double width,
+        out double height)
     {
-        x = y = width = 0;
+        x = y = width = height = 0;
         var buttons = _getProfileButtons();
         var count = buttons.Count;
         if (count == 0)
@@ -376,17 +382,41 @@ internal sealed class ProfileChipReorderController
 
         if (insertBeforeIndex <= 0 && TryGetBoundsInInsertionLineHost(buttons[0], out var first))
         {
-            x = first.X;
-            y = Math.Max(0, first.Y - 2);
-            width = first.Width;
+            if (IsHorizontalSlot(buttons, 0, first))
+            {
+                x = Math.Max(0, first.X - 2);
+                y = first.Y;
+                width = 2;
+                height = first.Height;
+            }
+            else
+            {
+                x = first.X;
+                y = Math.Max(0, first.Y - 2);
+                width = first.Width;
+                height = 2;
+            }
+
             return true;
         }
 
         if (insertBeforeIndex >= count && TryGetBoundsInInsertionLineHost(buttons[count - 1], out var last))
         {
-            x = last.X;
-            y = last.Y + last.Height;
-            width = last.Width;
+            if (IsHorizontalSlot(buttons, count - 1, last))
+            {
+                x = last.X + last.Width;
+                y = last.Y;
+                width = 2;
+                height = last.Height;
+            }
+            else
+            {
+                x = last.X;
+                y = last.Y + last.Height;
+                width = last.Width;
+                height = 2;
+            }
+
             return true;
         }
 
@@ -395,13 +425,50 @@ internal sealed class ProfileChipReorderController
             && TryGetBoundsInInsertionLineHost(buttons[insertBeforeIndex - 1], out var prev)
             && TryGetBoundsInInsertionLineHost(buttons[insertBeforeIndex], out var next))
         {
-            x = Math.Min(prev.X, next.X);
-            y = (prev.Y + prev.Height + next.Y) / 2 - 1;
-            width = Math.Max(prev.X + prev.Width, next.X + next.Width) - x;
+            if (IsHorizontalSlot(prev, next))
+            {
+                var prevRight = prev.X + prev.Width;
+                x = (prevRight + next.X) / 2 - 1;
+                y = Math.Min(prev.Y, next.Y);
+                width = 2;
+                height = Math.Max(prev.Y + prev.Height, next.Y + next.Height) - y;
+            }
+            else
+            {
+                x = Math.Min(prev.X, next.X);
+                y = (prev.Y + prev.Height + next.Y) / 2 - 1;
+                width = Math.Max(prev.X + prev.Width, next.X + next.Width) - x;
+                height = 2;
+            }
+
             return true;
         }
 
         return false;
+    }
+
+    private bool IsHorizontalSlot(IReadOnlyList<Button> buttons, int anchorIndex, Rect anchorBounds)
+    {
+        if (anchorIndex + 1 < buttons.Count
+            && TryGetBoundsInInsertionLineHost(buttons[anchorIndex + 1], out var next))
+        {
+            return IsHorizontalSlot(anchorBounds, next);
+        }
+
+        if (anchorIndex > 0
+            && TryGetBoundsInInsertionLineHost(buttons[anchorIndex - 1], out var prev))
+        {
+            return IsHorizontalSlot(prev, anchorBounds);
+        }
+
+        return false;
+    }
+
+    private static bool IsHorizontalSlot(Rect prev, Rect next)
+    {
+        var dx = Math.Abs((next.X + next.Width / 2) - (prev.X + prev.Width / 2));
+        var dy = Math.Abs((next.Y + next.Height / 2) - (prev.Y + prev.Height / 2));
+        return dx >= dy;
     }
 
     private int HitTestInsertBeforeIndex(Point pos)

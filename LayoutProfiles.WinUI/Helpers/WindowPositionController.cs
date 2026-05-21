@@ -43,6 +43,8 @@ internal sealed class WindowPositionController
 
     public bool IsAutoHidden => _isAutoHidden;
 
+    public bool IsTracking => _tracking;
+
     public WindowPositionController(
         Window window,
         UIElement dragSurface,

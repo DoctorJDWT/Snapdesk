@@ -33,13 +33,34 @@ internal static class DockRevealIndicatorHelper
     public static SolidColorBrush CreateBrush(bool dark) =>
         new(Color.FromArgb(PillAlpha, 0xB8, 0xB8, 0xB8));
 
-    public static void ApplyLayout(Border indicator, WindowDockEdge edge)
+    public static void ApplyLayout(Border indicator, WindowDockEdge edge, double edgeInset = 0)
     {
-        indicator.HorizontalAlignment = HorizontalAlignment.Stretch;
-        indicator.VerticalAlignment = VerticalAlignment.Stretch;
-        indicator.Margin = new Thickness(0);
-        indicator.ClearValue(FrameworkElement.WidthProperty);
-        indicator.ClearValue(FrameworkElement.HeightProperty);
+        indicator.Width = edge is WindowDockEdge.Left or WindowDockEdge.Right
+            ? PillThick
+            : PillLong;
+        indicator.Height = edge is WindowDockEdge.Left or WindowDockEdge.Right
+            ? PillLong
+            : PillThick;
+        indicator.Margin = edge switch
+        {
+            WindowDockEdge.Left => new Thickness(edgeInset, 0, 0, 0),
+            WindowDockEdge.Right => new Thickness(0, 0, edgeInset, 0),
+            WindowDockEdge.Top => new Thickness(0, edgeInset, 0, 0),
+            WindowDockEdge.Bottom => new Thickness(0, 0, 0, edgeInset),
+            _ => new Thickness(0),
+        };
+        indicator.HorizontalAlignment = edge switch
+        {
+            WindowDockEdge.Left => HorizontalAlignment.Left,
+            WindowDockEdge.Right => HorizontalAlignment.Right,
+            _ => HorizontalAlignment.Center,
+        };
+        indicator.VerticalAlignment = edge switch
+        {
+            WindowDockEdge.Top => VerticalAlignment.Top,
+            WindowDockEdge.Bottom => VerticalAlignment.Bottom,
+            _ => VerticalAlignment.Center,
+        };
         indicator.CornerRadius = new CornerRadius(PillThick / 2);
     }
 }

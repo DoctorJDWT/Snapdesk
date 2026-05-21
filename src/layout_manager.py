@@ -109,6 +109,7 @@ class WindowRecord:
     maximized: bool
     minimized: bool
     z_index: int
+    browser_url: str | None = None
 
 
 def _profiles_dir() -> Path:
@@ -208,7 +209,12 @@ def _allow_launch(exe_path: str) -> bool:
     return base not in _LAUNCH_DENY
 
 
-def launch_executable(exe_path: str, *, window_title: str | None = None) -> bool:
+def launch_executable(
+    exe_path: str,
+    *,
+    window_title: str | None = None,
+    browser_url: str | None = None,
+) -> bool:
     """
     Start a program by full path (Windows). Returns True if a process was started.
     Skips system/shell executables in ``_LAUNCH_DENY``.
@@ -223,7 +229,7 @@ def launch_executable(exe_path: str, *, window_title: str | None = None) -> bool
         return False
     if _is_explorer_exe(exe_path) and window_title:
         return launch_explorer_for_title(window_title)
-    argv = [exe_path]
+    argv = _browser_launch_argv(exe_path, browser_url) or [exe_path]
     if not argv:
         return False
     cwd = os.path.dirname(exe_path) or None
@@ -245,12 +251,31 @@ def launch_executable(exe_path: str, *, window_title: str | None = None) -> bool
             import win32api
             import win32con
 
-            rc = win32api.ShellExecute(0, "open", exe_path, None, cwd, win32con.SW_SHOWNORMAL)
+            params = " ".join(_quote_shell_arg(arg) for arg in argv[1:]) if len(argv) > 1 else None
+            rc = win32api.ShellExecute(0, "open", exe_path, params, cwd, win32con.SW_SHOWNORMAL)
             if rc > 32:
                 return True
         except Exception:
             pass
     return False
+
+
+def _quote_shell_arg(value: str) -> str:
+    escaped = value.replace('"', r'\"')
+    return f'"{escaped}"' if any(ch.isspace() for ch in escaped) else escaped
+
+
+def _browser_launch_argv(exe_path: str, browser_url: str | None) -> list[str] | None:
+    url = _normalize_browser_url(browser_url)
+    if not _is_browser_exe(exe_path) or not _looks_like_browser_url(url):
+        return None
+
+    base = os.path.basename(_normalize_exe_path(exe_path)).lower()
+    if base in _CHROMIUM_BROWSER_BASES:
+        return [exe_path, "--new-window", url]
+    if base == "firefox.exe":
+        return [exe_path, "-new-window", url]
+    return [exe_path, url]
 
 
 def _exe_matches_filters(exe_lower: str, filters: list[str] | None) -> bool:
@@ -282,6 +307,113 @@ _LEAGUE_RIOT_CLIENT_BASES = frozenset(
         "riotclientux.exe",
     }
 )
+
+_BROWSER_BASES = frozenset(
+    {
+        "brave.exe",
+        "chrome.exe",
+        "firefox.exe",
+        "msedge.exe",
+        "opera.exe",
+        "opera_gx.exe",
+        "vivaldi.exe",
+    }
+)
+
+_CHROMIUM_BROWSER_BASES = frozenset(
+    {
+        "brave.exe",
+        "chrome.exe",
+        "msedge.exe",
+        "opera.exe",
+        "opera_gx.exe",
+        "vivaldi.exe",
+    }
+)
+
+
+def _is_browser_exe(exe_path: str) -> bool:
+    return os.path.basename(_normalize_exe_path(exe_path)).lower() in _BROWSER_BASES
+
+
+def _looks_like_browser_url(value: str | None) -> bool:
+    if not value:
+        return False
+    return bool(
+        re.match(
+            r"^(https?|file)://|^about:|^[a-z][a-z0-9+.-]*://",
+            value.strip(),
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _normalize_browser_url(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def _browser_url_for_hwnd(hwnd: int, exe_path: str) -> str | None:
+    """
+    Best-effort active tab URL capture for Chromium/Firefox style browsers.
+
+    pywin32 does not expose UI Automation directly, so we ask PowerShell/.NET to read
+    the browser address bar via UIAutomationClient. It is intentionally optional:
+    restore still works like before when URL capture is unavailable.
+    """
+    if not _is_browser_exe(exe_path) or hwnd <= 0:
+        return None
+
+    script = rf"""
+try {{
+    Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop
+    Add-Type -AssemblyName UIAutomationTypes -ErrorAction Stop
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]{int(hwnd)})
+    if ($null -eq $root) {{ exit 0 }}
+    $cond = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::Edit)
+    $edits = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)
+    foreach ($el in $edits) {{
+        $value = ""
+        try {{
+            $pattern = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $value = $pattern.Current.Value
+        }} catch {{ }}
+        if ($value -match '^(https?|file)://|^about:|^[a-z][a-z0-9+\.-]*://') {{
+            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+            Write-Output $value
+            exit 0
+        }}
+    }}
+}} catch {{ }}
+"""
+    flags = 0
+    if sys.platform == "win32":
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        result = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            creationflags=flags,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        url = line.strip()
+        if _looks_like_browser_url(url):
+            return url
+    return None
 
 
 def _collect_windows(
@@ -332,6 +464,7 @@ def _collect_windows(
                 maximized=maximized,
                 minimized=minimized,
                 z_index=len(records),
+                browser_url=_browser_url_for_hwnd(hwnd, exe_lower),
             )
         )
 
@@ -743,6 +876,7 @@ def _load_profile_windows(path: Path) -> tuple[dict[str, Any], list[WindowRecord
                 maximized=bool(w.get("maximized", False)),
                 minimized=bool(w.get("minimized", False)),
                 z_index=int(w.get("z_index", 0)),
+                browser_url=_normalize_browser_url(w.get("browser_url")) or None,
             )
         )
     return data, saved
@@ -767,6 +901,7 @@ def _geometry_from_hwnd(hwnd: int, rec: WindowRecord) -> WindowRecord:
         maximized=maximized,
         minimized=minimized,
         z_index=rec.z_index,
+        browser_url=_browser_url_for_hwnd(hwnd, rec.exe_path) or rec.browser_url,
     )
 
 
@@ -865,6 +1000,11 @@ def _find_candidates(
         if _title_match(saved.title, title):
             out.append((hwnd, title))
             return
+        if saved.browser_url and _is_browser_exe(saved.exe_path):
+            actual_url = _browser_url_for_hwnd(hwnd, exe)
+            if _normalize_browser_url(actual_url) == _normalize_browser_url(saved.browser_url):
+                out.append((hwnd, title))
+                return
         if league_riot_row and _title_match_league_riot(saved.title, title):
             out.append((hwnd, title))
 
@@ -999,6 +1139,7 @@ def restore_profile(
                 maximized=bool(w.get("maximized", False)),
                 minimized=bool(w.get("minimized", False)),
                 z_index=int(w.get("z_index", 0)),
+                browser_url=_normalize_browser_url(w.get("browser_url")) or None,
             )
         )
     total = len(saved)
@@ -1006,6 +1147,7 @@ def restore_profile(
 
     started_order: list[str] = []
     launched_exes_total: set[str] = set()
+    launched_browser_urls: set[tuple[str, str]] = set()
     launched_explorer_keys: set[str] = set()
 
     for attempt in range(retries):
@@ -1028,8 +1170,20 @@ def restore_profile(
                 else:
                     for launch_path in _launch_paths_for_record(rec.exe_path):
                         lp = launch_path.lower()
+                        if _is_browser_exe(launch_path) and rec.browser_url:
+                            url_key = (lp, _normalize_browser_url(rec.browser_url))
+                            if _allow_launch(launch_path) and url_key not in launched_browser_urls:
+                                if launch_executable(
+                                    launch_path,
+                                    window_title=rec.title,
+                                    browser_url=rec.browser_url,
+                                ):
+                                    launched_browser_urls.add(url_key)
+                                    started_order.append(f"{launch_path} | {rec.browser_url}")
+                                    break
+                            continue
                         if _allow_launch(launch_path) and lp not in launched_exes_total:
-                            if launch_executable(launch_path):
+                            if launch_executable(launch_path, window_title=rec.title):
                                 launched_exes_total.add(lp)
                                 started_order.append(launch_path)
                                 break
@@ -1403,7 +1557,14 @@ def main() -> None:
         rows = list_pickable_windows()
         print(
             json.dumps(
-                [{"exe_path": w.exe_path, "title": w.title} for w in rows],
+                [
+                    {
+                        "exe_path": w.exe_path,
+                        "title": w.title,
+                        "browser_url": w.browser_url,
+                    }
+                    for w in rows
+                ],
                 ensure_ascii=True,
             )
         )

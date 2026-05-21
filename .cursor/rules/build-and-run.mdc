@@ -1,0 +1,20 @@
+---
+description: After WinUI/code changes, build and run Snapdesk dev exe
+globs:
+  - LayoutProfiles.WinUI/**
+  - launchers/**
+  - scripts/build_winui.ps1
+alwaysApply: false
+---
+
+# Build and run after changes
+
+When you change Snapdesk WinUI code or anything that affects the running app:
+
+1. Stop a running dev instance if `Snapdesk.exe` is locked.
+2. Build: `dotnet build LayoutProfiles.WinUI/LayoutProfiles.WinUI.csproj -c Release -p:Platform=x64`
+3. Launch: `LayoutProfiles.WinUI/bin/x64/Release/net8.0-windows10.0.19041.0/Snapdesk.exe` (working directory = that folder).
+
+Or use `launchers\run_winui.cmd` / **Ctrl+Shift+B** then **Ctrl+F5** in Cursor.
+
+Report build success or errors to the user; do not skip this unless the user asked for a plan-only or question-only task.

@@ -29,7 +29,7 @@ internal static class AppTheme
     public const string WidgetAccent = "WidgetAccentBrush";
     public const string WidgetAddChipBackground = "WidgetAddChipBackgroundBrush";
 
-    private static ThemePreference _preference = ThemePreference.Dark;
+    private static ThemePreference _preference = ThemePreference.System;
     private static WidgetPalette _palette;
     private static UISettings? _uiSettings;
     private static bool _systemListenerAttached;
@@ -69,7 +69,8 @@ internal static class AppTheme
         {
             "light" => ThemePreference.Light,
             "system" => ThemePreference.System,
-            _ => ThemePreference.Dark,
+            "dark" => ThemePreference.Dark,
+            _ => ThemePreference.System,
         };
 
     private static void EnsureSystemListener()

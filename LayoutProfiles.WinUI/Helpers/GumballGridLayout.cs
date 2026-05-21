@@ -25,10 +25,13 @@ internal sealed class GumballGridLayout
     public GumballLayoutResult Apply(
         IReadOnlyList<UIElement> chips,
         int clientWidth,
-        int clientHeight)
+        int clientHeight,
+        int? forcedChipsPerRow = null)
     {
         var count = chips.Count;
-        var chipsPerRow = ComputeChipsPerRow(clientWidth, _chipUnit);
+        var chipsPerRow = forcedChipsPerRow.HasValue
+            ? Math.Clamp(forcedChipsPerRow.Value, 1, Math.Max(1, count))
+            : ComputeChipsPerRow(clientWidth, _chipUnit);
         var columnCount = count > 0 ? Math.Min(chipsPerRow, count) : 1;
         var rows = (count + chipsPerRow - 1) / chipsPerRow;
         var hostWidth = columnCount * _chipUnit;
@@ -78,7 +81,10 @@ internal sealed class GumballGridLayout
         _chipHost.MinHeight = _chipUnit;
 
         _scrollViewer.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
-        _scrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
+        _scrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        _scrollViewer.HorizontalScrollMode = ScrollMode.Disabled;
+        _scrollViewer.VerticalScrollMode = ScrollMode.Disabled;
+        _scrollViewer.ZoomMode = ZoomMode.Disabled;
 
         _scrollViewer.HorizontalContentAlignment =
             hostWidth <= clientWidth ? HorizontalAlignment.Center : HorizontalAlignment.Left;

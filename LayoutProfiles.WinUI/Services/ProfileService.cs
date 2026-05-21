@@ -117,7 +117,11 @@ public sealed class ProfileService
                     continue;
                 }
 
-                list.Add(new PickableWindow(exe, title));
+                var browserUrl = w.TryGetProperty("browser_url", out var urlEl)
+                    && urlEl.ValueKind == JsonValueKind.String
+                    ? urlEl.GetString()
+                    : null;
+                list.Add(new PickableWindow(exe, title, browserUrl));
             }
         }
         catch (JsonException)

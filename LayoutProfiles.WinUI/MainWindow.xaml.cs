@@ -30,6 +30,8 @@ public sealed partial class MainWindow : Window
     private GumballGridLayout _gumballLayout = null!;
     private ProfileChipReorderController? _chipReorder;
     private Button _addChip = null!;
+    private Border? _addChipFace;
+    private FontIcon? _addChipIcon;
     private readonly List<UIElement> _profileChipElements = new();
     private TextBlock _statusText = null!;
 
@@ -45,10 +47,13 @@ public sealed partial class MainWindow : Window
     /// <summary>Extra inset so chips are not clipped by rounding or tight layout.</summary>
     private const int MinChromeSlackPx = 16;
 
-    /// <summary>Horizontal slack for preset snap sizing (not the resize floor).</summary>
+    /// <summary>Horizontal slack so auto-sized dock layouts do not clip rounded chips.</summary>
     private const int PresetWidthSlackPx = 4;
+    private const int DockHorizontalSlackDip = 4;
+    private const int DockLongAxisSlackDip = 20;
+    private const int DockCrossAxisSlackDip = 4;
 
-    /// <summary>Absolute minimum AppWindow client width (resize floor).</summary>
+    /// <summary>Absolute minimum AppWindow client width.</summary>
     private const int MinClientWidthPx = 96;
     private const double ProfileChipFontSize = 13;
     private const double AddChipFontSize = 17;
@@ -67,8 +72,9 @@ public sealed partial class MainWindow : Window
     private MenuFlyoutItem? _themeDarkItem;
     private MenuFlyoutItem? _themeLightItem;
     private MenuFlyoutItem? _themeSystemItem;
-    private readonly Dictionary<WidgetSizePreset, MenuFlyoutItem> _sizeMenuItems = new();
     private WidgetSizePreset _widgetSizePreset = WidgetSizePreset.OneByOne;
+    private WindowDockEdge _layoutDockEdge = WindowDockEdge.None;
+    private bool _applyingDockLayout;
     private const string ThemeCheckGlyph = "\uE73E";
 
     public MainWindow()
@@ -113,7 +119,6 @@ public sealed partial class MainWindow : Window
             var themePref = _settings.GetThemePreference(_settingsCache);
             AppTheme.Initialize(themePref);
             SyncThemeMenuChecks();
-            SyncSizeMenuChecks();
             ApplyWidgetChromeFromTheme();
 
             EnsureAddChipLast();
@@ -192,7 +197,10 @@ public sealed partial class MainWindow : Window
         {
             Background = transparent,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollMode = ScrollMode.Disabled,
+            VerticalScrollMode = ScrollMode.Disabled,
+            ZoomMode = ZoomMode.Disabled,
             HorizontalContentAlignment = HorizontalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
@@ -249,29 +257,6 @@ public sealed partial class MainWindow : Window
         settingsSub.Items.Add(_themeDarkItem);
         settingsSub.Items.Add(_themeLightItem);
         settingsSub.Items.Add(_themeSystemItem);
-        settingsSub.Items.Add(new MenuFlyoutSeparator());
-
-        var sizeSub = new MenuFlyoutSubItem { Text = "Size" };
-        foreach (var preset in new[]
-                 {
-                     WidgetSizePreset.OneByOne,
-                     WidgetSizePreset.OneByTwo,
-                     WidgetSizePreset.OneByThree,
-                     WidgetSizePreset.OneByFour,
-                     WidgetSizePreset.TwoByOne,
-                     WidgetSizePreset.ThreeByOne,
-                     WidgetSizePreset.FourByOne,
-                     WidgetSizePreset.OneByFit,
-                     WidgetSizePreset.FitX1,
-                     WidgetSizePreset.TwoByFit,
-                 })
-        {
-            var sizeItem = CreateSizeMenuItem(preset);
-            _sizeMenuItems[preset] = sizeItem;
-            sizeSub.Items.Add(sizeItem);
-        }
-
-        settingsSub.Items.Add(sizeSub);
 
         var exitItem = new MenuFlyoutItem { Text = "Exit Snapdesk" };
         exitItem.Click += OnExitAppClick;
@@ -288,7 +273,6 @@ public sealed partial class MainWindow : Window
         _rootContextFlyout.Opening += (_, _) =>
         {
             SyncThemeMenuChecks();
-            SyncSizeMenuChecks();
             _positionController?.PushFlyoutSuppress();
         };
         _rootContextFlyout.Closed += (_, _) => _positionController?.PopFlyoutSuppress();
@@ -304,34 +288,6 @@ public sealed partial class MainWindow : Window
         var item = new MenuFlyoutItem { Text = label, Tag = preference };
         item.Click += (_, _) => SetThemePreference(preference);
         return item;
-    }
-
-    private MenuFlyoutItem CreateSizeMenuItem(WidgetSizePreset preset)
-    {
-        var item = new MenuFlyoutItem { Text = WidgetSizePresets.GetMenuLabel(preset), Tag = preset };
-        item.Click += (_, _) => SetWidgetSizePreset(preset);
-        return item;
-    }
-
-    private void SetWidgetSizePreset(WidgetSizePreset preset)
-    {
-        _widgetSizePreset = preset;
-        _settings.MergeAndSave(new Dictionary<string, object?>
-        {
-            ["widget_size_preset"] = WidgetSizePresets.ToSettingsValue(preset),
-        });
-        _settingsCache = _settings.Load();
-        SyncSizeMenuChecks();
-        ApplyWidgetSizePreset(preset, persist: true);
-        StartupTrace.Write($"Widget size preset set to {WidgetSizePresets.ToSettingsValue(preset)}");
-    }
-
-    private void SyncSizeMenuChecks()
-    {
-        foreach (var (preset, item) in _sizeMenuItems)
-        {
-            SetThemeItemCheck(item, preset == _widgetSizePreset);
-        }
     }
 
     private void SetThemePreference(ThemePreference preference)
@@ -392,19 +348,23 @@ public sealed partial class MainWindow : Window
         _rootGrid.RequestedTheme = elementTheme;
         _profileScrollViewer.RequestedTheme = elementTheme;
         _statusText.Foreground = palette.Muted;
-        _addChip.Background = palette.AddChipBackground;
-        _glassBackdrop?.ApplyTheme(AppTheme.IsDark);
-        // Opaque GDI erase blocks WinUI alpha; only paint resize edge bands.
-        WindowResizePaintHelper.Apply(this, palette.OpaqueChrome.Color, paintOpaqueClientBackground: false);
-        if (_addChip.Content is TextBlock addLabel)
+        _addChip.Background = transparent;
+        if (_addChipFace is not null)
         {
-            addLabel.Foreground = palette.Accent;
+            _addChipFace.Background = palette.AddChipBackground;
+        }
+
+        _glassBackdrop?.ApplyTheme(AppTheme.IsDark);
+        if (_addChipIcon is not null)
+        {
+            _addChipIcon.Foreground = palette.Accent;
         }
 
         try
         {
             var hwnd = WindowNative.GetWindowHandle(this);
             WindowChromeHelper.ApplyGlassNonClientFrame(hwnd);
+            WindowChromeHelper.ApplyNoTaskbarToolWindow(hwnd);
         }
         catch
         {
@@ -433,13 +393,13 @@ public sealed partial class MainWindow : Window
         try
         {
             ExtendsContentIntoTitleBar = true;
-            // Drag is handled by WindowPositionController so Windows Snap does not resize the widget.
+            // Drag is handled by WindowPositionController; dock sizing is automatic.
 
             var appWindow = AppWindowRef;
             if (appWindow.Presenter is OverlappedPresenter presenter)
             {
                 presenter.SetBorderAndTitleBar(false, false);
-                presenter.IsResizable = true;
+                presenter.IsResizable = false;
             }
 
             WindowChromeHelper.ApplyBorderlessTitleBar(appWindow);
@@ -453,6 +413,7 @@ public sealed partial class MainWindow : Window
         {
             var hwnd = WindowNative.GetWindowHandle(this);
             WindowChromeHelper.ApplyGlassNonClientFrame(hwnd);
+            WindowChromeHelper.ApplyNoTaskbarToolWindow(hwnd);
             WindowChromeHelper.ApplyRoundedCorners(this);
         }
         catch
@@ -503,11 +464,24 @@ public sealed partial class MainWindow : Window
         _dockPillController ??= new DockRevealPillController(() => AppWindowRef);
         _dockPillController.Update(edge, isAutoHidden, dockedDisplay);
 
+        var dockEdgeChanged = _layoutDockEdge != edge;
+        if (dockEdgeChanged)
+        {
+            _layoutDockEdge = edge;
+            _gumballLayout.Reset();
+            DispatcherQueue.TryEnqueue(() => ApplyGumballLayout(allowFitPresetResize: false));
+        }
+
         // Hide widget while rolled up; the overlay pill is the only affordance.
         var hidden = isAutoHidden && edge != WindowDockEdge.None;
         var opacity = hidden ? 0 : 1;
         _chromeHost.Opacity = opacity;
         _rootGrid.Opacity = opacity;
+
+        if (!hidden && _positionController?.IsTracking != true)
+        {
+            ApplyDockLayout(edge, dockedDisplay);
+        }
     }
 
     private void OnRootGridLoaded(object sender, RoutedEventArgs e)
@@ -538,7 +512,6 @@ public sealed partial class MainWindow : Window
         try
         {
             WindowChromeHelper.RemoveMinimumTrackSize(this);
-            WindowResizePaintHelper.Remove(this);
             _dockPillController?.Close();
             _glassBackdrop?.Dispose();
             _glassBackdrop = null;
@@ -622,7 +595,8 @@ public sealed partial class MainWindow : Window
         var result = _gumballLayout.Apply(
             _profileChipElements,
             clientWidth,
-            ClientHeightForChips());
+            ClientHeightForChips(),
+            DockedChipsPerRow());
 
         if (!result.Changed)
         {
@@ -927,6 +901,160 @@ public sealed partial class MainWindow : Window
         return (columns, rows);
     }
 
+    private (int Columns, int Rows) ResolveDockGrid(WindowDockEdge edge)
+    {
+        var chipCount = Math.Max(1, _profileChipElements.Count);
+        return edge switch
+        {
+            WindowDockEdge.Left or WindowDockEdge.Right => (1, chipCount),
+            WindowDockEdge.Top or WindowDockEdge.Bottom => (chipCount, 1),
+            _ => ResolvePresetGrid(_widgetSizePreset),
+        };
+    }
+
+    private int? DockedChipsPerRow()
+    {
+        return _layoutDockEdge switch
+        {
+            WindowDockEdge.Left or WindowDockEdge.Right => 1,
+            WindowDockEdge.Top or WindowDockEdge.Bottom => ResolveDockGrid(_layoutDockEdge).Columns,
+            _ => null,
+        };
+    }
+
+    private void ApplyDockLayout(WindowDockEdge edge, DisplayArea? display)
+    {
+        if (_applyingDockLayout || edge == WindowDockEdge.None || display is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _applyingDockLayout = true;
+            var (width, height) = ComputeDockWindowSize(edge, display);
+
+            var appWindow = AppWindowRef;
+            var targetSize = new SizeInt32(width, height);
+            var currentSize = appWindow.Size;
+            var changed = currentSize.Width != width || currentSize.Height != height;
+            if (changed)
+            {
+                WindowChromeHelper.ApplyMinimumTrackSize(this, 1, 1);
+                StartupTrace.Write($"ApplyDockLayout edge={edge} target={width}x{height} scale={RasterizationScale():F2}");
+                appWindow.Resize(targetSize);
+            }
+
+            var actualSize = appWindow.Size;
+            var targetPosition = GetDockPositionForSize(appWindow.Position, actualSize, edge, display);
+            var currentPosition = appWindow.Position;
+            if (currentPosition.X != targetPosition.X || currentPosition.Y != targetPosition.Y)
+            {
+                appWindow.Move(targetPosition);
+                changed = true;
+            }
+
+            if (changed)
+            {
+                _gumballLayout.Reset();
+                DispatcherQueue.TryEnqueue(() => ApplyGumballLayout(allowFitPresetResize: false));
+            }
+        }
+        catch (Exception ex)
+        {
+            StartupTrace.Write($"ApplyDockLayout failed: {ex.Message}");
+        }
+        finally
+        {
+            _applyingDockLayout = false;
+        }
+    }
+
+    private void ApplyCurrentDockLayout()
+    {
+        if (_layoutDockEdge == WindowDockEdge.None || _positionController is null)
+        {
+            return;
+        }
+
+        if (_positionController.TryGetDockedDisplay(out var display))
+        {
+            ApplyDockLayout(_layoutDockEdge, display);
+        }
+    }
+
+    private static PointInt32 GetDockPositionForSize(
+        PointInt32 currentPosition,
+        SizeInt32 targetSize,
+        WindowDockEdge edge,
+        DisplayArea display)
+    {
+        var work = display.WorkArea;
+        var x = Math.Clamp(
+            currentPosition.X,
+            work.X,
+            Math.Max(work.X, work.X + work.Width - targetSize.Width));
+        var y = Math.Clamp(
+            currentPosition.Y,
+            work.Y,
+            Math.Max(work.Y, work.Y + work.Height - targetSize.Height));
+
+        return edge switch
+        {
+            WindowDockEdge.Left => new PointInt32(work.X, y),
+            WindowDockEdge.Right => new PointInt32(work.X + work.Width - targetSize.Width, y),
+            WindowDockEdge.Top => new PointInt32(x, work.Y),
+            WindowDockEdge.Bottom => new PointInt32(x, work.Y + work.Height - targetSize.Height),
+            _ => currentPosition,
+        };
+    }
+
+    private (int Width, int Height) ComputeDockWindowSize(WindowDockEdge edge, DisplayArea display)
+    {
+        var (columns, rows) = ResolveDockGrid(edge);
+        var chipUnit = ChipUnitPx();
+        var crossAxisDip = chipUnit + DockCrossAxisSlackDip;
+        double widthDip = columns * chipUnit + DockLongAxisSlackDip;
+        double heightDip = rows * chipUnit + DockLongAxisSlackDip;
+        var scale = RasterizationScale();
+        var crossAxisPx = Math.Max(
+            GetMinClientWidth(),
+            (int)Math.Ceiling(crossAxisDip * scale));
+
+        if (edge is WindowDockEdge.Left or WindowDockEdge.Right)
+        {
+            widthDip = crossAxisPx / scale;
+        }
+
+        if (edge is WindowDockEdge.Top or WindowDockEdge.Bottom)
+        {
+            heightDip = crossAxisPx / scale;
+        }
+
+        var width = (int)Math.Ceiling(widthDip * scale);
+        var height = (int)Math.Ceiling(heightDip * scale);
+        width = Math.Clamp(width, GetMinClientWidth(), Math.Max(GetMinClientWidth(), display.WorkArea.Width));
+        height = Math.Clamp(height, GetMinClientHeight(), Math.Max(GetMinClientHeight(), display.WorkArea.Height));
+        return (width, height);
+    }
+
+    private double RasterizationScale()
+    {
+        try
+        {
+            if (_contentRoot.XamlRoot is not null && _contentRoot.XamlRoot.RasterizationScale > 0)
+            {
+                return _contentRoot.XamlRoot.RasterizationScale;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return 1;
+    }
+
     private void ApplyWidgetSizePreset(WidgetSizePreset preset, bool persist)
     {
         try
@@ -956,7 +1084,9 @@ public sealed partial class MainWindow : Window
 
     private void MaybeResizeForFitPreset()
     {
-        if (!_geometryController.IsReadyForPersist || !WidgetSizePresets.IsFit(_widgetSizePreset))
+        if (_layoutDockEdge != WindowDockEdge.None
+            || !_geometryController.IsReadyForPersist
+            || !WidgetSizePresets.IsFit(_widgetSizePreset))
         {
             return;
         }
@@ -996,7 +1126,6 @@ public sealed partial class MainWindow : Window
         {
             var minH = GetMinClientHeight();
             var minW = GetMinClientWidth();
-            WindowChromeHelper.ApplyMinimumTrackSize(this, minW, minH);
 
             var size = AppWindowRef.Size;
             var w = Math.Max(size.Width, minW);
@@ -1064,6 +1193,7 @@ public sealed partial class MainWindow : Window
 
         _gumballLayout.Reset();
         ApplyGumballLayout();
+        ApplyCurrentDockLayout();
         StartupTrace.Write($"RefreshProfiles count={_profileChipElements.Count}");
     }
 
@@ -1076,6 +1206,7 @@ public sealed partial class MainWindow : Window
             _profileChipElements.Add(_addChip);
             _gumballLayout.Reset();
             ApplyGumballLayout();
+            ApplyCurrentDockLayout();
             ScheduleGumballLayoutAfterMeasure();
         }
         catch (Exception ex)
@@ -1091,24 +1222,49 @@ public sealed partial class MainWindow : Window
         var addBg = Application.Current.Resources[AppTheme.WidgetAddChipBackground] as SolidColorBrush
             ?? new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x48, 0x4C, 0x54));
         var radius = ProfileChipSize / 2;
-        var btn = new Button
+        var transparent = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        _addChipFace = new Border
         {
             Width = ProfileChipSize,
             Height = ProfileChipSize,
-            Margin = new Thickness(ProfileChipMargin),
             CornerRadius = new CornerRadius(radius),
             Background = addBg,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _addChipIcon = new FontIcon
+        {
+            Glyph = "\uE710",
+            FontSize = 12,
+            Foreground = accent,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var face = new Grid
+        {
+            Width = ProfileChipSize,
+            Height = ProfileChipSize,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        face.Children.Add(_addChipFace);
+        face.Children.Add(_addChipIcon);
+
+        var btn = new Button
+        {
+            Width = ChipUnitPx(),
+            Height = ChipUnitPx(),
+            Margin = new Thickness(0),
+            Padding = new Thickness(0),
+            MinWidth = 0,
+            MinHeight = 0,
+            CornerRadius = new CornerRadius(ChipUnitPx() / 2.0),
+            Background = transparent,
             BorderThickness = new Thickness(0),
             IsEnabled = !_busy,
-            Content = new TextBlock
-            {
-                Text = "+",
-                FontSize = AddChipFontSize,
-                FontWeight = Microsoft.UI.Text.FontWeights.Light,
-                Foreground = accent,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            },
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Content = face,
         };
         ToolTipService.SetToolTip(btn, "Save current layout as new profile (click or right-click)");
         btn.Click += OnAddChipClick;
@@ -1530,6 +1686,7 @@ public sealed partial class MainWindow : Window
         _statusText.Text = text;
         _statusText.Visibility = Visibility.Visible;
         ApplyMinimumWindowSize();
+        ApplyCurrentDockLayout();
     }
 
     private void ClearStatus()
@@ -1537,6 +1694,7 @@ public sealed partial class MainWindow : Window
         _statusText.Text = string.Empty;
         _statusText.Visibility = Visibility.Collapsed;
         ApplyMinimumWindowSize();
+        ApplyCurrentDockLayout();
     }
 
     private static string TryDevTitleSuffix(string baseTitle)

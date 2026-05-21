@@ -125,7 +125,7 @@ public sealed class SettingsService
                 : ThemePreference.Light;
         }
 
-        return ThemePreference.Dark;
+        return ThemePreference.System;
     }
 
     public static (int Width, int Height, int X, int Y)? ParseWindowGeometry(Dictionary<string, JsonElement> settings)

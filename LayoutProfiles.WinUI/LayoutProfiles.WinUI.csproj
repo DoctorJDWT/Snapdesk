@@ -16,8 +16,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <WindowsPackageType>None</WindowsPackageType>
+    <!-- Default false for design-time/AnyCPU project load; enable only for real x64 builds. -->
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <!-- Bundle WinApp SDK 1.6 next to the exe so a separate MSIX runtime install is not required. -->
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <WindowsAppSDKSelfContained Condition="'$(Platform)' == 'x64'">true</WindowsAppSDKSelfContained>
     <WindowsAppSdkBootstrapAutoInitializeOptions>OnNoMatch_ShowUI</WindowsAppSdkBootstrapAutoInitializeOptions>
     <EnableMsixTooling>false</EnableMsixTooling>
     <GenerateAppxPackageOnBuild>false</GenerateAppxPackageOnBuild>

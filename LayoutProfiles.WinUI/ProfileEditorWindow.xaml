@@ -4,107 +4,99 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Grid
       x:Name="RootGrid"
-      Padding="24">
+      Padding="22">
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="*" MinHeight="0" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-    <Grid Grid.Row="0" MinHeight="0">
-      <Grid.RowDefinitions>
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="*" MinHeight="0" />
-        <RowDefinition Height="Auto" />
-      </Grid.RowDefinitions>
-
-      <TextBlock
-          x:Name="HeadingText"
-          Grid.Row="0"
-          Margin="0,0,0,12"
-          FontSize="20"
-          FontWeight="SemiBold" />
-
-      <StackPanel
-          x:Name="NamePageBody"
-          Grid.Row="1"
-          Spacing="12"
-          VerticalAlignment="Top">
-        <StackPanel x:Name="NamePanel" Spacing="12">
-          <TextBlock
-              x:Name="NameLabelText"
-              Text="Profile name"
-              FontSize="13"
-              Opacity="0.75" />
-          <TextBox
-              x:Name="NameBox"
-              MaxLength="120"
-              PlaceholderText="e.g. League" />
-        </StackPanel>
-      </StackPanel>
-
-      <Grid
-          x:Name="WindowsPageBody"
-          Grid.Row="1"
-          Visibility="Collapsed">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="*" MinHeight="0" />
-          <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
-        <TextBlock
-            x:Name="WindowsHintText"
-            Grid.Row="0"
-            FontSize="13"
-            Opacity="0.75"
-            Margin="0,0,0,8"
-            TextWrapping="WrapWholeWords"
-            Text="Select windows to include in this layout." />
-
-        <ListView
-            x:Name="WindowList"
-            Grid.Row="1"
-            SelectionMode="None">
-          <ListView.ItemTemplate>
-            <DataTemplate>
-              <CheckBox
-                  Content="{Binding DisplayText}"
-                  IsChecked="{Binding IsChecked, Mode=TwoWay}" />
-            </DataTemplate>
-          </ListView.ItemTemplate>
-        </ListView>
-
-        <TextBlock
-            x:Name="EmptyWindowsText"
-            Grid.Row="2"
-            FontSize="12"
-            Margin="0,8,0,0"
-            Text="No pickable windows found. Open the apps you want, then click Refresh."
-            TextWrapping="WrapWholeWords"
-            Visibility="Collapsed" />
-      </Grid>
-
-      <TextBlock
-          x:Name="ErrorText"
-          Grid.Row="2"
-          FontSize="12"
-          Foreground="#FFE06C75"
-          Margin="0,8,0,0"
-          TextWrapping="WrapWholeWords"
-          Visibility="Collapsed" />
-    </Grid>
+    <TextBlock
+        x:Name="HeadingText"
+        Grid.Row="0"
+        Margin="0,0,0,14"
+        FontSize="20"
+        FontWeight="SemiBold" />
 
     <StackPanel
         Grid.Row="1"
+        Spacing="8">
+      <TextBlock
+          x:Name="NameLabelText"
+          Text="Profile name"
+          FontSize="13"
+          Opacity="0.75" />
+      <TextBox
+          x:Name="NameBox"
+          MaxLength="120"
+          PlaceholderText="e.g. League" />
+    </StackPanel>
+
+    <StackPanel
+        Grid.Row="2"
+        Spacing="4"
+        Margin="0,18,0,8">
+      <TextBlock
+          x:Name="ApplicationsLabelText"
+          Text="Applications"
+          FontSize="13"
+          FontWeight="SemiBold"
+          Opacity="0.85" />
+      <TextBlock
+          x:Name="WindowsHintText"
+          FontSize="12"
+          Opacity="0.75"
+          TextWrapping="WrapWholeWords"
+          Text="Select windows to include in this layout." />
+    </StackPanel>
+
+    <ItemsControl
+        x:Name="WindowList"
+        Grid.Row="3">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate>
+          <CheckBox
+              HorizontalAlignment="Stretch"
+              HorizontalContentAlignment="Stretch"
+              IsChecked="{Binding IsChecked, Mode=TwoWay}">
+            <TextBlock
+                Text="{Binding DisplayText}"
+                TextWrapping="WrapWholeWords"
+                TextTrimming="CharacterEllipsis"
+                MaxLines="2" />
+          </CheckBox>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <TextBlock
+        x:Name="EmptyWindowsText"
+        Grid.Row="4"
+        FontSize="12"
+        Margin="0,8,0,0"
+        Text="No pickable windows found. Open the apps you want, then click Refresh."
+        TextWrapping="WrapWholeWords"
+        Visibility="Collapsed" />
+
+    <TextBlock
+        x:Name="ErrorText"
+        Grid.Row="5"
+        FontSize="12"
+        Foreground="#FFE06C75"
+        Margin="0,8,0,0"
+        TextWrapping="WrapWholeWords"
+        Visibility="Collapsed" />
+
+    <StackPanel
+        Grid.Row="6"
         Orientation="Horizontal"
         HorizontalAlignment="Right"
         Spacing="8"
         Margin="0,12,0,0">
-      <Button
-          x:Name="BackButton"
-          Content="Back"
-          Click="OnBackClick"
-          Visibility="Collapsed" />
       <Button
           x:Name="CancelButton"
           Content="Cancel"
@@ -112,19 +104,12 @@
       <Button
           x:Name="RefreshButton"
           Content="Refresh"
-          Click="OnRefreshClick"
-          Visibility="Collapsed" />
-      <Button
-          x:Name="NextButton"
-          Content="Next"
-          Style="{StaticResource AccentButtonStyle}"
-          Click="OnNextClick" />
+          Click="OnRefreshClick" />
       <Button
           x:Name="SaveButton"
           Content="Save"
           Style="{StaticResource AccentButtonStyle}"
-          Click="OnSaveClick"
-          Visibility="Collapsed" />
+          Click="OnSaveClick" />
     </StackPanel>
   </Grid>
 </Window>

@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Windows.Graphics;
 using Windows.System;
 using WinRT.Interop;
 
@@ -15,9 +16,12 @@ namespace LayoutProfiles.WinUI;
 
 public sealed partial class ProfileEditorWindow : Window
 {
-    private const int WindowWidth = 480;
-    private const int WindowHeightName = 380;
-    private const int WindowHeightWindows = 520;
+    private const int WindowWidth = 640;
+    private const int InitialWindowHeight = 520;
+    private const int MinWindowHeight = 420;
+    private const int FixedEditorHeight = 280;
+    private const int ApplicationRowHeight = 44;
+    private const int WorkAreaInset = 80;
 
     private readonly TaskCompletionSource<ProfileEditorResult?> _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ProfileEditorMode _mode;
@@ -27,7 +31,7 @@ public sealed partial class ProfileEditorWindow : Window
     private readonly List<WindowPickerItem> _pickerItems = new();
     private HashSet<string> _savedKeys = new(StringComparer.OrdinalIgnoreCase);
     private bool _completed;
-    private bool _onWindowsPage;
+    private bool _listInitialized;
 
     private ProfileEditorWindow(ProfileEditorMode mode, string initialName, string? profilePath)
     {
@@ -44,13 +48,14 @@ public sealed partial class ProfileEditorWindow : Window
             : "Add or remove windows. Checked items are saved in the profile.";
 
         NameBox.TextChanged += (_, _) => ErrorText.Visibility = Visibility.Collapsed;
+        RootGrid.Loaded += OnRootGridLoaded;
         Closed += OnClosed;
         RootGrid.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), handledEventsToo: true);
         SecondaryWindowTracker.Register(this);
         AppTheme.ResolvedThemeChanged += OnResolvedThemeChanged;
         ApplyThemeFromApp();
 
-        ConfigureWindowChrome(WindowHeightName);
+        ConfigureWindowChrome(InitialWindowHeight);
     }
 
     public static Task<ProfileEditorResult?> ShowCreateAsync()
@@ -80,6 +85,7 @@ public sealed partial class ProfileEditorWindow : Window
 
         HeadingText.Foreground = palette.Primary;
         NameLabelText.Foreground = palette.Muted;
+        ApplicationsLabelText.Foreground = palette.Primary;
         WindowsHintText.Foreground = palette.Muted;
         EmptyWindowsText.Foreground = palette.Muted;
 
@@ -97,50 +103,26 @@ public sealed partial class ProfileEditorWindow : Window
     private void ConfigureWindowChrome(int height) =>
         SecondaryWindowPlacement.Apply(this, SecondaryWindowPlacement.ProfileEditor, WindowWidth, height);
 
-    private void ShowNamePage()
+    private AppWindow GetAppWindow()
     {
-        _onWindowsPage = false;
-        NamePageBody.Visibility = Visibility.Visible;
-        WindowsPageBody.Visibility = Visibility.Collapsed;
-        NamePanel.Visibility = Visibility.Visible;
-        BackButton.Visibility = Visibility.Collapsed;
-        RefreshButton.Visibility = Visibility.Collapsed;
-        NextButton.Visibility = Visibility.Visible;
-        SaveButton.Visibility = Visibility.Collapsed;
-        HeadingText.Text = _mode == ProfileEditorMode.Create ? "New layout" : "Edit layout";
-        ConfigureWindowChrome(WindowHeightName);
+        var hwnd = WindowNative.GetWindowHandle(this);
+        var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+        return AppWindow.GetFromWindowId(windowId);
     }
 
-    private void ShowWindowsPage()
+    private async void OnRootGridLoaded(object sender, RoutedEventArgs e)
     {
-        _onWindowsPage = true;
-        NamePageBody.Visibility = Visibility.Collapsed;
-        WindowsPageBody.Visibility = Visibility.Visible;
-        BackButton.Visibility = Visibility.Visible;
-        RefreshButton.Visibility = Visibility.Visible;
-        NextButton.Visibility = Visibility.Collapsed;
-        SaveButton.Visibility = Visibility.Visible;
-        HeadingText.Text = "Select windows";
-        ConfigureWindowChrome(WindowHeightWindows);
-    }
-
-    private async void OnNextClick(object sender, RoutedEventArgs e)
-    {
-        if (_onWindowsPage)
+        if (_listInitialized)
         {
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(NameBox.Text))
-        {
-            ErrorText.Text = "Enter a profile name.";
-            ErrorText.Visibility = Visibility.Visible;
-            return;
-        }
+        _listInitialized = true;
+        await InitializeWindowListAsync();
+    }
 
-        ErrorText.Visibility = Visibility.Collapsed;
-        NextButton.IsEnabled = false;
-
+    private async Task InitializeWindowListAsync()
+    {
         try
         {
             if (_mode == ProfileEditorMode.Edit && !string.IsNullOrEmpty(_profilePath))
@@ -151,16 +133,11 @@ public sealed partial class ProfileEditorWindow : Window
             }
 
             await LoadWindowListAsync();
-            ShowWindowsPage();
         }
         catch (Exception ex)
         {
             ErrorText.Text = $"Could not list windows: {ex.Message}";
             ErrorText.Visibility = Visibility.Visible;
-        }
-        finally
-        {
-            NextButton.IsEnabled = true;
         }
     }
 
@@ -188,18 +165,22 @@ public sealed partial class ProfileEditorWindow : Window
                 }
             }
 
+            var checkedKeys = _pickerItems.Count > 0
+                ? _pickerItems.Where(i => i.IsChecked)
+                    .Select(i => i.Window.Key)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : _savedKeys;
+
             _pickerItems.Clear();
             foreach (var w in merged.Values.OrderBy(x => x.Title, StringComparer.OrdinalIgnoreCase))
             {
-                var isChecked = _mode == ProfileEditorMode.Create
-                    ? false
-                    : _savedKeys.Contains(w.Key);
-                _pickerItems.Add(new WindowPickerItem(w, isChecked));
+                _pickerItems.Add(new WindowPickerItem(w, checkedKeys.Contains(w.Key)));
             }
 
             WindowList.ItemsSource = null;
             WindowList.ItemsSource = _pickerItems;
             EmptyWindowsText.Visibility = _pickerItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            ResizeToFitApplicationList();
         }
         catch (Exception ex)
         {
@@ -212,20 +193,41 @@ public sealed partial class ProfileEditorWindow : Window
         }
     }
 
-    private void OnBackClick(object sender, RoutedEventArgs e)
+    private void ResizeToFitApplicationList()
     {
-        ErrorText.Visibility = Visibility.Collapsed;
-        ShowNamePage();
+        var itemCount = Math.Max(1, _pickerItems.Count);
+        var desiredHeight = Math.Max(MinWindowHeight, FixedEditorHeight + itemCount * ApplicationRowHeight);
+
+        try
+        {
+            var appWindow = GetAppWindow();
+            var pos = appWindow.Position;
+            var size = appWindow.Size;
+            var center = new PointInt32(
+                pos.X + Math.Max(1, size.Width) / 2,
+                pos.Y + Math.Max(1, size.Height) / 2);
+            var display = DisplayArea.GetFromPoint(center, DisplayAreaFallback.Nearest);
+            var maxHeight = Math.Max(MinWindowHeight, display.WorkArea.Height - WorkAreaInset);
+            var height = Math.Min(desiredHeight, maxHeight);
+            var (width, clampedHeight, x, y) = WindowGeometryHelper.ClampToVirtualScreen(
+                WindowWidth,
+                height,
+                pos.X,
+                pos.Y,
+                minWidth: WindowWidth,
+                minHeight: MinWindowHeight);
+
+            appWindow.Resize(new SizeInt32(width, clampedHeight));
+            appWindow.Move(new PointInt32(x, y));
+        }
+        catch
+        {
+            ConfigureWindowChrome(desiredHeight);
+        }
     }
 
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
-        if (!_onWindowsPage)
-        {
-            OnNextClick(sender, e);
-            return;
-        }
-
         if (string.IsNullOrWhiteSpace(NameBox.Text))
         {
             ErrorText.Text = "Enter a profile name.";
@@ -260,21 +262,10 @@ public sealed partial class ProfileEditorWindow : Window
             return;
         }
 
-        if (_onWindowsPage)
-        {
-            if (SaveButton.Visibility == Visibility.Visible && SaveButton.IsEnabled)
-            {
-                e.Handled = true;
-                OnSaveClick(SaveButton, new RoutedEventArgs());
-            }
-
-            return;
-        }
-
-        if (NextButton.Visibility == Visibility.Visible && NextButton.IsEnabled)
+        if (SaveButton.IsEnabled)
         {
             e.Handled = true;
-            OnNextClick(NextButton, new RoutedEventArgs());
+            OnSaveClick(SaveButton, new RoutedEventArgs());
         }
     }
 
@@ -312,7 +303,9 @@ public sealed partial class ProfileEditorWindow : Window
         {
             Window = window;
             _isChecked = isChecked;
-            DisplayText = $"{window.Title} — {System.IO.Path.GetFileName(window.ExePath)}";
+            DisplayText = string.IsNullOrWhiteSpace(window.BrowserUrl)
+                ? $"{window.Title} - {System.IO.Path.GetFileName(window.ExePath)}"
+                : $"{window.Title} - {window.BrowserUrl}";
         }
 
         public PickableWindow Window { get; }

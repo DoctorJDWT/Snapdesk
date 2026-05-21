@@ -168,7 +168,11 @@ public sealed class PythonBridge
                     continue;
                 }
 
-                list.Add(new PickableWindow(exe, title));
+                var browserUrl = el.TryGetProperty("browser_url", out var urlEl)
+                    && urlEl.ValueKind == JsonValueKind.String
+                    ? urlEl.GetString()
+                    : null;
+                list.Add(new PickableWindow(exe, title, browserUrl));
             }
 
             return list;

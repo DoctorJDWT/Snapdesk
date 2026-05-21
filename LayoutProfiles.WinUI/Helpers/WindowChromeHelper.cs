@@ -31,6 +31,19 @@ internal static class WindowChromeHelper
     private const int DwmwaBorderColor = 34;
     private const int DwmwaVisibleFrameBorderThickness = 37;
     private const int DwmwcpRound = 2;
+    private const int GwlStyle = -16;
+    private const int GwlExstyle = -20;
+    private const nint WsCaption = 0x00C00000;
+    private const nint WsThickFrame = 0x00040000;
+    private const nint WsBorder = 0x00800000;
+    private const nint WsDlgFrame = 0x00400000;
+    private const nint WsExAppwindow = 0x00040000;
+    private const nint WsExToolwindow = 0x00000080;
+    private const uint SwpFrameChanged = 0x0020;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
 
     [DllImport("dwmapi.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
     private static extern int DwmSetWindowAttribute(
@@ -112,6 +125,23 @@ internal static class WindowChromeHelper
         _ = DwmSetWindowAttribute(hwnd, DwmwaVisibleFrameBorderThickness, ref noBorder, sizeof(int));
     }
 
+    /// <summary>Keep utility windows out of the taskbar and Alt-Tab when they hide/show.</summary>
+    public static void ApplyNoTaskbarToolWindow(IntPtr hwnd)
+    {
+        var exStyle = GetWindowLongPtr(hwnd, GwlExstyle);
+        exStyle |= WsExToolwindow;
+        exStyle &= ~WsExAppwindow;
+        SetWindowLongPtr(hwnd, GwlExstyle, exStyle);
+        _ = SetWindowPos(
+            hwnd,
+            0,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
+    }
+
     /// <summary>
     /// Strip Win32 caption/thick-frame so tiny overlay windows do not show a collapsed title-bar band.
     /// Do not call <see cref="ApplyBorderlessTitleBar"/> on these windows — that path reserves the band.
@@ -119,26 +149,23 @@ internal static class WindowChromeHelper
     public static void ApplyOverlayWindowChrome(IntPtr hwnd)
     {
         ApplyZeroVisibleFrameBorder(hwnd);
+        ApplyNoTaskbarToolWindow(hwnd);
 
-        const int gwlStyle = -16;
-        const nint wsCaption = 0x00C00000;
-        const nint wsThickFrame = 0x00040000;
-        const nint wsBorder = 0x00800000;
-        const nint wsDlgFrame = 0x00400000;
-
-        var style = GetWindowLongPtr(hwnd, gwlStyle);
-        style &= ~(wsCaption | wsThickFrame | wsBorder | wsDlgFrame);
-        SetWindowLongPtr(hwnd, gwlStyle, style);
+        var style = GetWindowLongPtr(hwnd, GwlStyle);
+        style &= ~(WsCaption | WsThickFrame | WsBorder | WsDlgFrame);
+        SetWindowLongPtr(hwnd, GwlStyle, style);
 
         // Do not use DwmExtendFrameIntoClientArea(-1) on tiny overlays — it draws glass
         // strips on different edges depending on dock side (the white/black bar artifacts).
 
-        const uint swpFrameChanged = 0x0020;
-        const uint swpNoMove = 0x0002;
-        const uint swpNoSize = 0x0001;
-        const uint swpNoZOrder = 0x0004;
-        const uint swpNoActivate = 0x0010;
-        _ = SetWindowPos(hwnd, 0, 0, 0, 0, 0, swpNoMove | swpNoSize | swpNoZOrder | swpNoActivate | swpFrameChanged);
+        _ = SetWindowPos(
+            hwnd,
+            0,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
     }
 
     /// <summary>Clip the HWND to a capsule so no rectangular frame can bleed on any edge.</summary>
