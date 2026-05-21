@@ -8,7 +8,8 @@ param(
     [switch] $NoPrompt,
     [switch] $LaunchAfterInstall,
     [switch] $NoLaunch,
-    [int] $WaitPid = 0
+    [Alias('WaitPid')]
+    [int] $WaitProcessId = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,13 +36,13 @@ function Write-Step([string] $Message) {
     Write-Host $Message -ForegroundColor Cyan
 }
 
-function Wait-ProcessExit([int] $Pid) {
-    if ($Pid -le 0) {
+function Wait-ProcessExit([int] $ProcessId) {
+    if ($ProcessId -le 0) {
         return
     }
 
     try {
-        $proc = Get-Process -Id $Pid -ErrorAction Stop
+        $proc = Get-Process -Id $ProcessId -ErrorAction Stop
         if ($proc) {
             $null = $proc.WaitForExit(120000)
         }
@@ -577,7 +578,7 @@ else {
     $installDir = $picked
 }
 
-Wait-ProcessExit -Pid $WaitPid
+Wait-ProcessExit -ProcessId $WaitProcessId
 
 Write-Step "Snapdesk installer"
 Write-Step "Install location: $installDir"

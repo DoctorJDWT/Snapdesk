@@ -1,21 +1,22 @@
 # Removes Snapdesk from the machine. Invoked detached after the app exits.
-# Run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Uninstall-Snapdesk.ps1 -InstallDir "..." -WaitPid 1234
+# Run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Uninstall-Snapdesk.ps1 -InstallDir "..." -WaitProcessId 1234
 
 param(
     [Parameter(Mandatory = $true)]
     [string] $InstallDir,
-    [int] $WaitPid = 0
+    [Alias('WaitPid')]
+    [int] $WaitProcessId = 0
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-function Wait-ProcessExit([int] $Pid) {
-    if ($Pid -le 0) {
+function Wait-ProcessExit([int] $ProcessId) {
+    if ($ProcessId -le 0) {
         return
     }
 
     try {
-        $proc = Get-Process -Id $Pid -ErrorAction Stop
+        $proc = Get-Process -Id $ProcessId -ErrorAction Stop
         if ($proc) {
             $null = $proc.WaitForExit(120000)
         }
@@ -69,7 +70,7 @@ function Remove-PathRobust([string] $Path) {
 }
 
 $installDir = [System.IO.Path]::GetFullPath($InstallDir.Trim())
-Wait-ProcessExit -Pid $WaitPid
+Wait-ProcessExit -ProcessId $WaitProcessId
 Stop-SnapdeskProcesses
 
 $desktopDir = [Environment]::GetFolderPath('Desktop')

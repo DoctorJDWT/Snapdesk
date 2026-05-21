@@ -17,7 +17,7 @@ internal static class UninstallSnapdesk
         var waitPid = Environment.ProcessId;
         var arguments =
             $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\" " +
-            $"-InstallDir \"{installDir}\" -WaitPid {waitPid}";
+            $"-InstallDir \"{installDir}\" -WaitProcessId {waitPid}";
 
         _ = Process.Start(new ProcessStartInfo
         {
