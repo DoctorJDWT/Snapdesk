@@ -44,7 +44,7 @@ public sealed partial class ProfileDeleteWindow : Window
     public static Task<bool> ShowConfirmAsync(ProfileRow row)
     {
         var window = new ProfileDeleteWindow(row);
-        WindowChromeHelper.ActivateOwnedDialog(window, App.MainWindowInstance);
+        WindowChromeHelper.PresentModal(window, App.MainWindowInstance);
         return window._tcs.Task;
     }
 
@@ -106,6 +106,7 @@ public sealed partial class ProfileDeleteWindow : Window
         }
 
         _completed = true;
+        WindowChromeHelper.ReleaseModal(this);
         _tcs.TrySetResult(confirmed);
         try
         {

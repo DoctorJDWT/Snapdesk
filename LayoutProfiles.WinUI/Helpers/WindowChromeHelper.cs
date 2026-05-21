@@ -33,7 +33,6 @@ internal static class WindowChromeHelper
     private const int DwmwcpRound = 2;
     private const int GwlStyle = -16;
     private const int GwlExstyle = -20;
-    private const int GwlHwndparent = -8;
     private const nint WsCaption = 0x00C00000;
     private const nint WsThickFrame = 0x00040000;
     private const nint WsBorder = 0x00800000;
@@ -212,20 +211,61 @@ internal static class WindowChromeHelper
     private static extern bool BringWindowToTop(IntPtr hWnd);
 
     /// <summary>
-    /// Show a secondary dialog above the widget. The main window uses WS_EX_TOOLWINDOW,
-    /// which otherwise leaves normal dialogs underneath it.
+    /// Present a secondary WinUI <see cref="Window"/> above the tool-window widget.
+    /// Do not set GWLP_HWNDPARENT — that breaks WinUI top-level windows (blank/hidden dialogs).
     /// </summary>
-    public static void ActivateOwnedDialog(Window dialog, Window? owner)
+    public static void PresentModal(Window dialog, Window? owner)
+    {
+        _ = owner;
+        try
+        {
+            if (GetAppWindow(dialog).Presenter is OverlappedPresenter presenter)
+            {
+                presenter.IsAlwaysOnTop = true;
+            }
+        }
+        catch
+        {
+            // ignore presenter configuration failures
+        }
+
+        void OnActivated(object sender, WindowActivatedEventArgs e)
+        {
+            if (e.WindowActivationState == WindowActivationState.Deactivated)
+            {
+                return;
+            }
+
+            dialog.Activated -= OnActivated;
+            BringDialogToFront(dialog);
+        }
+
+        dialog.Activated += OnActivated;
+        dialog.Activate();
+        dialog.DispatcherQueue.TryEnqueue(() => BringDialogToFront(dialog));
+    }
+
+    public static void ReleaseModal(Window dialog)
     {
         try
         {
-            var dialogHwnd = WindowNative.GetWindowHandle(dialog);
-            if (owner is not null)
+            if (GetAppWindow(dialog).Presenter is OverlappedPresenter presenter)
             {
-                var ownerHwnd = WindowNative.GetWindowHandle(owner);
-                _ = SetWindowLongPtr(dialogHwnd, GwlHwndparent, ownerHwnd);
+                presenter.IsAlwaysOnTop = false;
             }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
 
+    private static void BringDialogToFront(Window dialog)
+    {
+        try
+        {
+            dialog.Activate();
+            var dialogHwnd = WindowNative.GetWindowHandle(dialog);
             _ = BringWindowToTop(dialogHwnd);
             _ = SetForegroundWindow(dialogHwnd);
         }
@@ -233,8 +273,13 @@ internal static class WindowChromeHelper
         {
             // ignore Win32 failures
         }
+    }
 
-        dialog.Activate();
+    private static AppWindow GetAppWindow(Window window)
+    {
+        var hwnd = WindowNative.GetWindowHandle(window);
+        var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+        return AppWindow.GetFromWindowId(windowId);
     }
 
     [DllImport("user32.dll", SetLastError = true)]

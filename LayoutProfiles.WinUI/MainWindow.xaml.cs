@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Input;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Windows.Graphics;
 using Windows.UI;
@@ -280,7 +281,6 @@ public sealed partial class MainWindow : Window
         _rootGrid.ContextFlyout = _rootContextFlyout;
         _chromeHost.ContextFlyout = _rootContextFlyout;
         _contentRoot.ContextFlyout = _rootContextFlyout;
-        _profileScrollViewer.ContextFlyout = _rootContextFlyout;
     }
 
     private MenuFlyoutItem CreateThemeMenuItem(string label, ThemePreference preference)
@@ -1315,6 +1315,11 @@ public sealed partial class MainWindow : Window
         chipFlyout.Opening += (_, _) => _positionController?.PushFlyoutSuppress();
         chipFlyout.Closed += (_, _) => _positionController?.PopFlyoutSuppress();
         btn.ContextFlyout = chipFlyout;
+        btn.RightTapped += (_, e) =>
+        {
+            e.Handled = true;
+            FlyoutBase.ShowAttachedFlyout(btn);
+        };
 
         btn.Click += OnProfileChipClick;
 
@@ -1492,12 +1497,21 @@ public sealed partial class MainWindow : Window
 
         SetBusy(true);
         ProfileEditorResult? result = null;
+        _positionController?.PushFlyoutSuppress();
         try
         {
             result = await ProfileEditorDialog.ShowCreateAsync();
         }
+        catch (Exception ex)
+        {
+            CrashLog.Write("RunCreateProfileAsync", ex);
+            SetErrorStatus($"Could not open layout editor: {ex.Message}");
+            SetBusy(false);
+            return;
+        }
         finally
         {
+            _positionController?.PopFlyoutSuppress();
             if (result is null)
             {
                 SetBusy(false);
@@ -1545,7 +1559,24 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (!await ProfileDeleteDialog.ShowConfirmAsync(row))
+        _positionController?.PushFlyoutSuppress();
+        bool confirmed;
+        try
+        {
+            confirmed = await ProfileDeleteDialog.ShowConfirmAsync(row);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("ConfirmAndDeleteProfileAsync", ex);
+            SetErrorStatus($"Could not open delete dialog: {ex.Message}");
+            return;
+        }
+        finally
+        {
+            _positionController?.PopFlyoutSuppress();
+        }
+
+        if (!confirmed)
         {
             return;
         }
@@ -1562,12 +1593,21 @@ public sealed partial class MainWindow : Window
 
         SetBusy(true);
         ProfileEditorResult? request = null;
+        _positionController?.PushFlyoutSuppress();
         try
         {
             request = await ProfileEditorDialog.ShowEditAsync(row);
         }
+        catch (Exception ex)
+        {
+            CrashLog.Write("RunEditAsync", ex);
+            SetErrorStatus($"Could not open layout editor: {ex.Message}");
+            SetBusy(false);
+            return;
+        }
         finally
         {
+            _positionController?.PopFlyoutSuppress();
             if (request is null)
             {
                 SetBusy(false);

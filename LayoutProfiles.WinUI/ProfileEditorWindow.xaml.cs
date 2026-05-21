@@ -61,14 +61,14 @@ public sealed partial class ProfileEditorWindow : Window
     public static Task<ProfileEditorResult?> ShowCreateAsync()
     {
         var window = new ProfileEditorWindow(ProfileEditorMode.Create, string.Empty, profilePath: null);
-        WindowChromeHelper.ActivateOwnedDialog(window, App.MainWindowInstance);
+        WindowChromeHelper.PresentModal(window, App.MainWindowInstance);
         return window._tcs.Task;
     }
 
     public static Task<ProfileEditorResult?> ShowEditAsync(ProfileRow row)
     {
         var window = new ProfileEditorWindow(ProfileEditorMode.Edit, row.DisplayName, row.FilePath);
-        WindowChromeHelper.ActivateOwnedDialog(window, App.MainWindowInstance);
+        WindowChromeHelper.PresentModal(window, App.MainWindowInstance);
         return window._tcs.Task;
     }
 
@@ -284,6 +284,7 @@ public sealed partial class ProfileEditorWindow : Window
         }
 
         _completed = true;
+        WindowChromeHelper.ReleaseModal(this);
         _tcs.TrySetResult(result);
         try
         {
