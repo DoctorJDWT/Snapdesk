@@ -89,6 +89,106 @@ function Invoke-WingetInstall {
     }
 }
 
+function Stop-SnapdeskProcessesInDirectory {
+    param([string] $InstallDirectory)
+
+    if ([string]::IsNullOrWhiteSpace($InstallDirectory)) {
+        return 0
+    }
+
+    $root = [System.IO.Path]::GetFullPath($InstallDirectory.TrimEnd('\', '/'))
+    $stopped = 0
+    foreach ($proc in Get-Process -ErrorAction SilentlyContinue) {
+        try {
+            $exe = $proc.Path
+            if ([string]::IsNullOrWhiteSpace($exe)) {
+                continue
+            }
+            $exeRoot = [System.IO.Path]::GetFullPath((Split-Path $exe -Parent))
+            if (-not $exeRoot.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+
+            Write-Step "Closing $($proc.ProcessName) so files can be updated..."
+            if ($proc.CloseMainWindow()) {
+                if ($proc.WaitForExit(3000)) {
+                    $stopped++
+                    continue
+                }
+            }
+            Stop-Process -Id $proc.Id -Force -ErrorAction Stop
+            $stopped++
+        }
+        catch {
+            try {
+                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                $stopped++
+            }
+            catch {
+                # ignore processes we cannot terminate
+            }
+        }
+    }
+
+    if ($stopped -gt 0) {
+        Start-Sleep -Milliseconds 800
+    }
+    return $stopped
+}
+
+function Copy-SnapdeskPayload {
+    param(
+        [string] $SourceDir,
+        [string] $TargetDir
+    )
+
+    $staging = Join-Path $env:TEMP ("Snapdesk-staging-" + [guid]::NewGuid().ToString("N"))
+    $backupDir = "$TargetDir.old"
+    New-Item -ItemType Directory -Path $staging -Force | Out-Null
+
+    try {
+        Copy-Item -Path (Join-Path $SourceDir "*") -Destination $staging -Recurse -Force
+
+        $closed = Stop-SnapdeskProcessesInDirectory $TargetDir
+        if ($closed -gt 0) {
+            Show-Message "Snapdesk was closed so the installer could update files in:`n`n$TargetDir" "Snapdesk Setup"
+        }
+
+        if (Test-Path -LiteralPath $TargetDir) {
+            if (Test-Path -LiteralPath $backupDir) {
+                Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            try {
+                Rename-Item -LiteralPath $TargetDir -NewName (Split-Path $backupDir -Leaf) -ErrorAction Stop
+            }
+            catch {
+                Stop-SnapdeskProcessesInDirectory $TargetDir | Out-Null
+                try {
+                    Rename-Item -LiteralPath $TargetDir -NewName (Split-Path $backupDir -Leaf) -ErrorAction Stop
+                }
+                catch {
+                    throw [System.IO.IOException]::new(
+                        "Could not replace the existing install because files are still in use.`n`nClose Snapdesk (check the system tray and Task Manager), then run Install Snapdesk.cmd again.`n`n$($_.Exception.Message)")
+                }
+            }
+        }
+
+        $parent = Split-Path $TargetDir -Parent
+        $leaf = Split-Path $TargetDir -Leaf
+        Move-Item -LiteralPath $staging -Destination (Join-Path $parent $leaf) -Force
+        $staging = $null
+
+        if (Test-Path -LiteralPath $backupDir) {
+            Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    finally {
+        if ($staging -and (Test-Path -LiteralPath $staging)) {
+            Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Find-SnapdeskExecutable([string] $Dir) {
     if (-not (Test-Path -LiteralPath $Dir)) { return $null }
     foreach ($name in @("Snapdesk.exe", "LayoutProfiles.WinUI.exe")) {
@@ -327,11 +427,14 @@ Or skip the installer and use the dev launcher:
         exit 1
     }
     Write-Step "Copying published app from dist\Snapdesk (found $($distExe | Split-Path -Leaf))..."
-    if (Test-Path -LiteralPath $installDir) {
-        Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path (Split-Path $installDir -Parent) -Force | Out-Null
+    try {
+        Copy-SnapdeskPayload -SourceDir $distDir -TargetDir $installDir
     }
-    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-    Copy-Item -Path (Join-Path $distDir "*") -Destination $installDir -Recurse -Force
+    catch {
+        Show-Message $_.Exception.Message "Snapdesk Setup" ([System.Windows.Forms.MessageBoxButtons]::OK) ([System.Windows.Forms.MessageBoxIcon]::Warning)
+        exit 1
+    }
 }
 elseif ($alreadyInstalled) {
     Write-Step "No dist\Snapdesk next to installer - keeping existing files in $installDir"
