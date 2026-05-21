@@ -61,6 +61,10 @@ Write-Host "=== Published executable: $($publishedExe.Name) ===" -ForegroundColo
 Write-Host "=== Copying Snapdesk payload files ===" -ForegroundColor Cyan
 
 Copy-Item -LiteralPath (Join-Path $root "invoke_python.ps1") -Destination $dist -Force
+
+$scriptsDest = Join-Path $dist "scripts"
+New-Item -ItemType Directory -Path $scriptsDest -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $root "scripts\Uninstall-Snapdesk.ps1") -Destination $scriptsDest -Force
 Copy-Item -LiteralPath (Join-Path $root "requirements.txt") -Destination $dist -Force
 
 $srcDest = Join-Path $dist "src"

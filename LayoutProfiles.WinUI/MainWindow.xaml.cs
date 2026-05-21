@@ -260,6 +260,11 @@ public sealed partial class MainWindow : Window
         settingsSub.Items.Add(_themeDarkItem);
         settingsSub.Items.Add(_themeLightItem);
         settingsSub.Items.Add(_themeSystemItem);
+        settingsSub.Items.Add(new MenuFlyoutSeparator());
+
+        var uninstallItem = new MenuFlyoutItem { Text = "Uninstall Snapdesk..." };
+        uninstallItem.Click += OnUninstallClick;
+        settingsSub.Items.Add(uninstallItem);
 
         var exitItem = new MenuFlyoutItem { Text = "Exit Snapdesk" };
         exitItem.Click += OnExitAppClick;
@@ -431,6 +436,23 @@ public sealed partial class MainWindow : Window
     private void OnExitAppClick(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void OnUninstallClick(object sender, RoutedEventArgs e)
+    {
+        if (!UninstallSnapdesk.Confirm())
+        {
+            return;
+        }
+
+        try
+        {
+            UninstallSnapdesk.LaunchDetachedAndExit();
+        }
+        catch (Exception ex)
+        {
+            ShowErrorMessageBox("Snapdesk", $"Could not start uninstall: {ex.Message}");
+        }
     }
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
