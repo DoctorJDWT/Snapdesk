@@ -10,31 +10,68 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-function Wait-ProcessExit([int] $ProcessId) {
-    if ($ProcessId -le 0) {
-        return
+function Stop-SnapdeskProcesses {
+    param(
+        [string] $InstallDir,
+        [int] $WaitProcessId = 0
+    )
+
+    foreach ($image in @('Snapdesk.exe', 'LayoutProfiles.WinUI.exe')) {
+        & taskkill.exe /F /IM $image /T 2>$null | Out-Null
     }
 
-    try {
-        $proc = Get-Process -Id $ProcessId -ErrorAction Stop
-        if ($proc) {
-            $null = $proc.WaitForExit(120000)
+    if (-not [string]::IsNullOrWhiteSpace($InstallDir)) {
+        $root = [System.IO.Path]::GetFullPath($InstallDir.TrimEnd('\', '/'))
+        $rootPrefix = $root + [System.IO.Path]::DirectorySeparatorChar
+
+        Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $exePath = $_.Path
+            if ([string]::IsNullOrWhiteSpace($exePath)) {
+                return $false
+            }
+            try {
+                $full = [System.IO.Path]::GetFullPath($exePath)
+                return $full.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+                    [string]::Equals($full, $root, [System.StringComparison]::OrdinalIgnoreCase)
+            }
+            catch {
+                return $false
+            }
+        } | ForEach-Object {
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
+
+        try {
+            Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $exePath = $_.ExecutablePath
+                    if ([string]::IsNullOrWhiteSpace($exePath)) {
+                        return $false
+                    }
+                    return $exePath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+                        [string]::Equals($exePath, $root, [System.StringComparison]::OrdinalIgnoreCase)
+                } |
+                ForEach-Object {
+                    & taskkill.exe /F /PID $_.ProcessId /T 2>$null | Out-Null
+                }
+        }
+        catch {
+            # WMI unavailable on some systems
         }
     }
-    catch {
-        # already exited
+
+    if ($WaitProcessId -gt 0) {
+        $deadline = (Get-Date).AddSeconds(30)
+        while ((Get-Date) -lt $deadline) {
+            if (-not (Get-Process -Id $WaitProcessId -ErrorAction SilentlyContinue)) {
+                break
+            }
+            Start-Sleep -Milliseconds 250
+        }
+        & taskkill.exe /F /PID $WaitProcessId /T 2>$null | Out-Null
     }
 
-    Start-Sleep -Seconds 1
-}
-
-function Stop-SnapdeskProcesses {
-    foreach ($name in @('Snapdesk', 'LayoutProfiles.WinUI')) {
-        Get-Process -Name $name -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-    }
-
-    Start-Sleep -Milliseconds 500
+    Start-Sleep -Milliseconds 600
 }
 
 function Remove-FileRobust([string] $Path) {
@@ -70,8 +107,12 @@ function Remove-PathRobust([string] $Path) {
 }
 
 $installDir = [System.IO.Path]::GetFullPath($InstallDir.Trim())
-Wait-ProcessExit -ProcessId $ProcessId
-Stop-SnapdeskProcesses
+
+$startupDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
+Remove-FileRobust (Join-Path $startupDir 'SnapdeskWidget.bat')
+Remove-FileRobust (Join-Path $startupDir 'LayoutProfilesWidget.bat')
+
+Stop-SnapdeskProcesses -InstallDir $installDir -WaitProcessId $ProcessId
 
 $desktopDir = [Environment]::GetFolderPath('Desktop')
 if ([string]::IsNullOrWhiteSpace($desktopDir)) {
@@ -80,10 +121,6 @@ if ([string]::IsNullOrWhiteSpace($desktopDir)) {
 
 Remove-FileRobust (Join-Path $desktopDir 'Snapdesk.lnk')
 Remove-FileRobust (Join-Path $desktopDir 'Layout Profiles.lnk')
-
-$startupDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
-Remove-FileRobust (Join-Path $startupDir 'SnapdeskWidget.bat')
-Remove-FileRobust (Join-Path $startupDir 'LayoutProfilesWidget.bat')
 
 $dataDir = Join-Path $env:LOCALAPPDATA 'LayoutProfiles'
 Remove-PathRobust $dataDir

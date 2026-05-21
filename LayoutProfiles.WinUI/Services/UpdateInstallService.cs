@@ -69,6 +69,8 @@ public sealed class UpdateInstallService
 
             _settings.SaveLastInstalledVersionAttempt(result.LatestVersion);
 
+            RemoveSnapdeskStartupShortcuts();
+
             NativeMessageBox.Show(
                 "Snapdesk",
                 $"Installing update {expectedVersion}… Snapdesk will close and restart.",
@@ -216,12 +218,25 @@ public sealed class UpdateInstallService
         return payloadVersion >= expected;
     }
 
+    private static void RemoveSnapdeskStartupShortcuts()
+    {
+        var startupDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            @"Microsoft\Windows\Start Menu\Programs\Startup");
+        foreach (var name in new[] { "SnapdeskWidget.bat", "LayoutProfilesWidget.bat" })
+        {
+            TryDeleteFile(Path.Combine(startupDir, name));
+        }
+    }
+
     private static void LaunchInstallDetached(
         string scriptPath,
         string installDir,
         int waitPid,
         string expectedVersion)
     {
+        RemoveSnapdeskStartupShortcuts();
+
         var arguments =
             $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\" " +
             $"-NoPrompt -InstallDir \"{installDir}\" -ProcessId {waitPid} -LaunchAfterInstall " +

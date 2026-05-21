@@ -37,22 +37,79 @@ function Write-Step([string] $Message) {
     Write-Host $Message -ForegroundColor Cyan
 }
 
-function Wait-ProcessExit([int] $ProcessId) {
-    if ($ProcessId -le 0) {
-        return
-    }
-
-    try {
-        $proc = Get-Process -Id $ProcessId -ErrorAction Stop
-        if ($proc) {
-            $null = $proc.WaitForExit(120000)
+function Remove-SnapdeskStartupShortcut {
+    $startupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
+    foreach ($name in @("SnapdeskWidget.bat", "LayoutProfilesWidget.bat")) {
+        $bat = Join-Path $startupDir $name
+        if (Test-Path -LiteralPath $bat) {
+            Remove-Item -LiteralPath $bat -Force -ErrorAction SilentlyContinue
+            Write-Step "Removed startup entry: $bat"
         }
     }
-    catch {
-        # already exited
+}
+
+function Stop-SnapdeskProcesses {
+    param(
+        [string] $InstallDir,
+        [int] $WaitProcessId = 0
+    )
+
+    foreach ($image in @("Snapdesk.exe", "LayoutProfiles.WinUI.exe")) {
+        & taskkill.exe /F /IM $image /T 2>$null | Out-Null
     }
 
-    Start-Sleep -Seconds 1
+    if (-not [string]::IsNullOrWhiteSpace($InstallDir)) {
+        $root = [System.IO.Path]::GetFullPath($InstallDir.TrimEnd('\', '/'))
+        $rootPrefix = $root + [System.IO.Path]::DirectorySeparatorChar
+
+        Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $exePath = $_.Path
+            if ([string]::IsNullOrWhiteSpace($exePath)) {
+                return $false
+            }
+            try {
+                $full = [System.IO.Path]::GetFullPath($exePath)
+                return $full.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+                    [string]::Equals($full, $root, [System.StringComparison]::OrdinalIgnoreCase)
+            }
+            catch {
+                return $false
+            }
+        } | ForEach-Object {
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
+
+        try {
+            Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $exePath = $_.ExecutablePath
+                    if ([string]::IsNullOrWhiteSpace($exePath)) {
+                        return $false
+                    }
+                    return $exePath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+                        [string]::Equals($exePath, $root, [System.StringComparison]::OrdinalIgnoreCase)
+                } |
+                ForEach-Object {
+                    & taskkill.exe /F /PID $_.ProcessId /T 2>$null | Out-Null
+                }
+        }
+        catch {
+            # WMI unavailable on some systems
+        }
+    }
+
+    if ($WaitProcessId -gt 0) {
+        $deadline = (Get-Date).AddSeconds(30)
+        while ((Get-Date) -lt $deadline) {
+            if (-not (Get-Process -Id $WaitProcessId -ErrorAction SilentlyContinue)) {
+                break
+            }
+            Start-Sleep -Milliseconds 250
+        }
+        & taskkill.exe /F /PID $WaitProcessId /T 2>$null | Out-Null
+    }
+
+    Start-Sleep -Milliseconds 600
 }
 
 function Test-IsWindowsAppsShim([string] $Path) {
@@ -118,51 +175,17 @@ function Invoke-WingetInstall {
     }
 }
 
-function Stop-SnapdeskProcessesInDirectory {
-    param([string] $InstallDirectory)
+function Invoke-RobocopyMirror {
+    param(
+        [string] $SourceDir,
+        [string] $TargetDir
+    )
 
-    if ([string]::IsNullOrWhiteSpace($InstallDirectory)) {
-        return 0
+    $null = & robocopy.exe $SourceDir $TargetDir /MIR /R:1 /W:2 /IS /IT /NFL /NDL /NJH /NJS /NP
+    if ($LASTEXITCODE -ge 8) {
+        throw [System.IO.IOException]::new(
+            "Robocopy failed to update Snapdesk in place (exit $LASTEXITCODE). Close Snapdesk and run the installer again.")
     }
-
-    $root = [System.IO.Path]::GetFullPath($InstallDirectory.TrimEnd('\', '/'))
-    $stopped = 0
-    foreach ($proc in Get-Process -ErrorAction SilentlyContinue) {
-        try {
-            $exe = $proc.Path
-            if ([string]::IsNullOrWhiteSpace($exe)) {
-                continue
-            }
-            $exeRoot = [System.IO.Path]::GetFullPath((Split-Path $exe -Parent))
-            if (-not $exeRoot.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
-                continue
-            }
-
-            Write-Step "Closing $($proc.ProcessName) so files can be updated..."
-            if ($proc.CloseMainWindow()) {
-                if ($proc.WaitForExit(3000)) {
-                    $stopped++
-                    continue
-                }
-            }
-            Stop-Process -Id $proc.Id -Force -ErrorAction Stop
-            $stopped++
-        }
-        catch {
-            try {
-                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-                $stopped++
-            }
-            catch {
-                # ignore processes we cannot terminate
-            }
-        }
-    }
-
-    if ($stopped -gt 0) {
-        Start-Sleep -Milliseconds 800
-    }
-    return $stopped
 }
 
 function Copy-SnapdeskPayload {
@@ -178,36 +201,46 @@ function Copy-SnapdeskPayload {
     try {
         Copy-Item -Path (Join-Path $SourceDir "*") -Destination $staging -Recurse -Force
 
-        $closed = Stop-SnapdeskProcessesInDirectory $TargetDir
-        if ($closed -gt 0) {
-            Show-Message "Snapdesk was closed so the installer could update files in:`n`n$TargetDir" "Snapdesk Setup"
-        }
+        Stop-SnapdeskProcesses -InstallDir $TargetDir
 
-        if (Test-Path -LiteralPath $TargetDir) {
+        $targetExists = Test-Path -LiteralPath $TargetDir
+        $renamedExisting = $false
+        if ($targetExists) {
             if (Test-Path -LiteralPath $backupDir) {
                 Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
             }
             try {
                 Rename-Item -LiteralPath $TargetDir -NewName (Split-Path $backupDir -Leaf) -ErrorAction Stop
+                $renamedExisting = $true
             }
             catch {
-                Stop-SnapdeskProcessesInDirectory $TargetDir | Out-Null
+                Stop-SnapdeskProcesses -InstallDir $TargetDir
                 try {
                     Rename-Item -LiteralPath $TargetDir -NewName (Split-Path $backupDir -Leaf) -ErrorAction Stop
+                    $renamedExisting = $true
                 }
                 catch {
-                    throw [System.IO.IOException]::new(
-                        "Could not replace the existing install because files are still in use.`n`nClose Snapdesk (check the system tray and Task Manager), then run Install Snapdesk.cmd again.`n`n$($_.Exception.Message)")
+                    Write-Step "Rename blocked; updating files in place with robocopy..."
+                    Stop-SnapdeskProcesses -InstallDir $TargetDir
+                    New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
+                    Invoke-RobocopyMirror -SourceDir $staging -TargetDir $TargetDir
+                    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+                    $staging = $null
+                    if (Test-Path -LiteralPath $backupDir) {
+                        Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                    return
                 }
             }
         }
 
         $parent = Split-Path $TargetDir -Parent
         $leaf = Split-Path $TargetDir -Leaf
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
         Move-Item -LiteralPath $staging -Destination (Join-Path $parent $leaf) -Force
         $staging = $null
 
-        if (Test-Path -LiteralPath $backupDir) {
+        if ($renamedExisting -and (Test-Path -LiteralPath $backupDir)) {
             Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -631,7 +664,12 @@ else {
     $installDir = $picked
 }
 
-Wait-ProcessExit -ProcessId $ProcessId
+$isUpdateRun = $NoPrompt -or -not [string]::IsNullOrWhiteSpace($ExpectedVersion)
+if ($isUpdateRun) {
+    Remove-SnapdeskStartupShortcut
+}
+
+Stop-SnapdeskProcesses -InstallDir $installDir -WaitProcessId $ProcessId
 
 Write-Step "Snapdesk installer"
 Write-Step "Install location: $installDir"
