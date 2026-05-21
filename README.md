@@ -17,7 +17,7 @@ Requires **Windows 10/11 (x64)**.
 1. Download **`Snapdesk-Setup.zip`** from the [latest release](https://github.com/DoctorJDWT/Snapdesk/releases/latest), or build it locally (see [Build](#build) below).
 2. Extract the zip and double-click **`Install Snapdesk.cmd`**.
 3. Approve any **winget** prompts if Windows asks (Python 3.12, optional Windows App Runtime).
-4. Use the **Snapdesk** desktop shortcut.
+4. Snapdesk starts automatically when setup finishes; you can also use the **Snapdesk** desktop shortcut later.
 
 **Install location:** you choose a folder during setup (default `%LOCALAPPDATA%\Programs\Snapdesk\`). Re-runs default to your existing install if the desktop shortcut is present.
 

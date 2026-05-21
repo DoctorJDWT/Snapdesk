@@ -7,10 +7,17 @@ param(
     [switch] $AddToStartup,
     [switch] $NoPrompt,
     [switch] $LaunchAfterInstall,
+    [switch] $NoLaunch,
     [int] $WaitPid = 0
 )
 
 $ErrorActionPreference = "Stop"
+
+# Launch when install finishes unless -NoLaunch. First-run Install Snapdesk.cmd needs no flags.
+$shouldLaunchAfterInstall = -not $NoLaunch
+if ($PSBoundParameters.ContainsKey('LaunchAfterInstall')) {
+    $shouldLaunchAfterInstall = [bool]$LaunchAfterInstall
+}
 
 Add-Type -AssemblyName System.Windows.Forms | Out-Null
 
@@ -735,14 +742,14 @@ if ($wingetWarnings.Count -gt 0) {
     $summary += "`n`nSome optional components may need manual install (open winget or Microsoft Store if prompted):`n- " + ($wingetWarnings -join "`n- ")
 }
 
-if ($LaunchAfterInstall) {
+if ($shouldLaunchAfterInstall) {
     Write-Step "Starting Snapdesk..."
     if (-not (Start-InstalledSnapdesk $installDir)) {
         Write-Host "Warning: install finished but Snapdesk could not be started from $installDir" -ForegroundColor Yellow
     }
 }
 
-if ($LaunchAfterInstall -and $NoPrompt) {
+if ($shouldLaunchAfterInstall -and $NoPrompt) {
     Write-Host $summary -ForegroundColor Green
     exit 0
 }
