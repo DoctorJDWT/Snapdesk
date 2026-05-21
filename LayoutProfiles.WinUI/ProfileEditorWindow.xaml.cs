@@ -16,13 +16,15 @@ namespace LayoutProfiles.WinUI;
 
 public sealed partial class ProfileEditorWindow : Window
 {
-    private const int WindowWidth = 640;
-    private const int MinWindowHeight = 420;
+    private const int WindowWidth = 760;
+    private const int MinWindowHeight = 520;
     /// <summary>Non-list chrome: heading, name, labels, buttons, padding.</summary>
-    private const int FixedEditorHeight = 300;
-    private const int ApplicationRowHeight = 48;
-    private const int MinListViewportHeight = 120;
-    private const int WorkAreaInset = 80;
+    private const int FixedEditorHeight = 268;
+    private const int ApplicationRowHeight = 44;
+    private const int MinListViewportHeight = 280;
+    /// <summary>Share of monitor work-area height used for the editor at most.</summary>
+    private const double MaxWorkAreaHeightFraction = 0.92;
+    private const int WorkAreaInset = 24;
 
     private readonly TaskCompletionSource<ProfileEditorResult?> _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ProfileEditorMode _mode;
@@ -209,9 +211,15 @@ public sealed partial class ProfileEditorWindow : Window
                 pos.X + Math.Max(1, size.Width) / 2,
                 pos.Y + Math.Max(1, size.Height) / 2);
             var display = DisplayArea.GetFromPoint(center, DisplayAreaFallback.Nearest);
-            var maxWindowHeight = Math.Max(MinWindowHeight, display.WorkArea.Height - WorkAreaInset);
+            var workHeight = display.WorkArea.Height;
+            var maxWindowHeight = Math.Max(
+                MinWindowHeight,
+                Math.Min(workHeight - WorkAreaInset, (int)(workHeight * MaxWorkAreaHeightFraction)));
             var maxListHeight = Math.Max(MinListViewportHeight, maxWindowHeight - FixedEditorHeight);
-            var listViewportHeight = Math.Min(contentListHeight, maxListHeight);
+            // Fill the list area up to the monitor cap so more apps are visible; scroll when content is taller.
+            var listViewportHeight = itemCount == 0
+                ? MinListViewportHeight
+                : maxListHeight;
             var height = Math.Max(MinWindowHeight, FixedEditorHeight + listViewportHeight);
 
             WindowListScroll.VerticalScrollBarVisibility = itemCount > 0 && contentListHeight > maxListHeight

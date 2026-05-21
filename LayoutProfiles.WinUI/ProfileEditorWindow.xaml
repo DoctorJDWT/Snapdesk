@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Grid
       x:Name="RootGrid"
-      Padding="22">
+      Padding="16">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
@@ -57,7 +57,7 @@
     <ScrollViewer
         x:Name="WindowListScroll"
         Grid.Row="3"
-        MinHeight="120"
+        MinHeight="280"
         VerticalScrollBarVisibility="Auto"
         HorizontalScrollBarVisibility="Disabled"
         VerticalScrollMode="Auto"
@@ -67,8 +67,8 @@
         <ItemsControl.ItemTemplate>
           <DataTemplate>
             <CheckBox
-                MinHeight="40"
-                Padding="4,6"
+                MinHeight="36"
+                Padding="2,4"
                 HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Stretch"
                 IsChecked="{Binding IsChecked, Mode=TwoWay}">
