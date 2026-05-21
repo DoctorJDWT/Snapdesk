@@ -9,7 +9,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
-using System.Runtime.InteropServices;
 using Windows.System;
 using Windows.Graphics;
 using Windows.UI;
@@ -66,6 +65,7 @@ public sealed partial class MainWindow : Window
     private readonly PythonBridge _python;
     private readonly GitHubReleaseUpdateChecker _updateChecker = new();
     private readonly AutoUpdateCheckService _autoUpdateCheck;
+    private readonly UpdateInstallService _updateInstallService = new();
     private readonly WindowGeometryController _geometryController;
     private Dictionary<string, System.Text.Json.JsonElement> _settingsCache = new();
     private bool _busy;
@@ -552,6 +552,10 @@ public sealed partial class MainWindow : Window
             {
                 ShowManualUpdateCheckDialogs(result);
             }
+            else if (result.Succeeded && result.IsUpdateAvailable)
+            {
+                PromptInstallUpdateOnUiThread(result);
+            }
             else
             {
                 LogSilentUpdateCheckResult(result);
@@ -615,25 +619,64 @@ public sealed partial class MainWindow : Window
 
     private void ShowManualUpdateCheckDialogs(ReleaseCheckResult result)
     {
-        var icon = result.Succeeded
-            ? (result.IsUpdateAvailable ? MbIconInformation : MbOk)
-            : MbIconWarning;
-
-        ShowMessageBox("Snapdesk", result.StatusMessage, icon);
-
-        if (!result.Succeeded || !result.IsUpdateAvailable)
+        if (!result.Succeeded)
         {
+            UpdateInstallService.ShowInstallFailedWithGithubFallback(
+                result.ErrorMessage ?? "Could not check for updates.",
+                result.ReleasePageUrl);
             return;
         }
 
-        var open = ShowMessageBox(
-            "Snapdesk",
-            "Open the release page in your browser to download the installer?",
-            MbYesNo | MbIconQuestion);
-        if (open == IdYes)
+        if (!result.IsUpdateAvailable)
         {
-            _ = OpenReleasePageAsync(result.ReleasePageUrl);
+            NativeMessageBox.Show(
+                "Snapdesk",
+                result.StatusMessage,
+                NativeMessageBox.MbOk | NativeMessageBox.MbIconInformation);
+            return;
         }
+
+        if (PromptInstallUpdate(result))
+        {
+            _ = RunInstallUpdateAsync(result);
+        }
+    }
+
+    private void PromptInstallUpdateOnUiThread(ReleaseCheckResult result)
+    {
+        void Prompt()
+        {
+            if (PromptInstallUpdate(result))
+            {
+                _ = RunInstallUpdateAsync(result);
+            }
+        }
+
+        var queue = DispatcherQueue;
+        if (queue.HasThreadAccess)
+        {
+            Prompt();
+            return;
+        }
+
+        queue.TryEnqueue(Prompt);
+    }
+
+    private static bool PromptInstallUpdate(ReleaseCheckResult result)
+    {
+        var versionLabel = result.LatestVersion?.ToString(3)
+                             ?? result.LatestTag
+                             ?? "newer";
+        var choice = NativeMessageBox.Show(
+            "Snapdesk",
+            $"Update available: {versionLabel} (you have {result.CurrentVersion}). Install now?",
+            NativeMessageBox.MbYesNo | NativeMessageBox.MbIconQuestion);
+        return choice == NativeMessageBox.IdYes;
+    }
+
+    private async Task RunInstallUpdateAsync(ReleaseCheckResult result)
+    {
+        await _updateInstallService.TryInstallUpdateAsync(result).ConfigureAwait(true);
     }
 
     private async void OnCheckForUpdatesClick(object sender, RoutedEventArgs e)
@@ -646,10 +689,16 @@ public sealed partial class MainWindow : Window
         await RunUpdateCheckAsync(force: true, showDialogs: true).ConfigureAwait(true);
     }
 
-    private async void OnUpdateAvailableClick(object sender, RoutedEventArgs e)
+    private void OnUpdateAvailableClick(object sender, RoutedEventArgs e)
     {
+        if (_cachedUpdateResult is { Succeeded: true, IsUpdateAvailable: true })
+        {
+            PromptInstallUpdateOnUiThread(_cachedUpdateResult);
+            return;
+        }
+
         var url = _cachedUpdateResult?.ReleasePageUrl ?? GitHubReleaseUpdateChecker.ReleasesLatestPage;
-        await OpenReleasePageAsync(url);
+        _ = OpenReleasePageAsync(url);
     }
 
     private static async Task OpenReleasePageAsync(string url)
@@ -660,10 +709,10 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowMessageBox(
+            NativeMessageBox.Show(
                 "Snapdesk",
                 $"Could not open the browser: {ex.Message}",
-                MbIconError);
+                NativeMessageBox.MbOk | NativeMessageBox.MbIconError);
         }
     }
 
@@ -1999,30 +2048,7 @@ public sealed partial class MainWindow : Window
     }
 
     private static void ShowErrorMessageBox(string title, string message) =>
-        ShowMessageBox(title, message, MbOk | MbIconError);
-
-    private static int ShowMessageBox(string title, string message, uint type)
-    {
-        try
-        {
-            return MessageBoxW(IntPtr.Zero, message, title, type);
-        }
-        catch
-        {
-            return 0;
-        }
-    }
-
-    private const uint MbOk = 0x00000000;
-    private const uint MbYesNo = 0x00000004;
-    private const int IdYes = 6;
-    private const uint MbIconError = 0x00000010;
-    private const uint MbIconWarning = 0x00000030;
-    private const uint MbIconInformation = 0x00000040;
-    private const uint MbIconQuestion = 0x00000020;
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, BestFitMapping = false)]
-    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
+        NativeMessageBox.Show(title, message, NativeMessageBox.MbOk | NativeMessageBox.MbIconError);
 
     private void ClearStatus()
     {

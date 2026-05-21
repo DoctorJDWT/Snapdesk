@@ -5,7 +5,9 @@
 param(
     [string] $InstallDir,
     [switch] $AddToStartup,
-    [switch] $NoPrompt
+    [switch] $NoPrompt,
+    [switch] $LaunchAfterInstall,
+    [int] $WaitPid = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,6 +26,24 @@ function Show-Message {
 
 function Write-Step([string] $Message) {
     Write-Host $Message -ForegroundColor Cyan
+}
+
+function Wait-ProcessExit([int] $Pid) {
+    if ($Pid -le 0) {
+        return
+    }
+
+    try {
+        $proc = Get-Process -Id $Pid -ErrorAction Stop
+        if ($proc) {
+            $null = $proc.WaitForExit(120000)
+        }
+    }
+    catch {
+        # already exited
+    }
+
+    Start-Sleep -Seconds 1
 }
 
 function Test-IsWindowsAppsShim([string] $Path) {
@@ -187,6 +207,32 @@ function Copy-SnapdeskPayload {
             Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+}
+
+function Start-InstalledSnapdesk([string] $Dir) {
+    if ([string]::IsNullOrWhiteSpace($Dir) -or -not (Test-Path -LiteralPath $Dir)) {
+        return $false
+    }
+
+    $launcherVbs = Join-Path $Dir "launch_snapdesk.vbs"
+    if (Test-Path -LiteralPath $launcherVbs) {
+        Start-Process -FilePath $launcherVbs -WorkingDirectory $Dir
+        return $true
+    }
+
+    $exePath = Find-SnapdeskExecutable $Dir
+    if ($exePath) {
+        Start-Process -FilePath $exePath -WorkingDirectory $Dir
+        return $true
+    }
+
+    $cmd = Join-Path $Dir "Snapdesk.cmd"
+    if (Test-Path -LiteralPath $cmd) {
+        Start-Process -FilePath $cmd -WorkingDirectory $Dir
+        return $true
+    }
+
+    return $false
 }
 
 function Find-SnapdeskExecutable([string] $Dir) {
@@ -454,6 +500,8 @@ else {
     $installDir = $picked
 }
 
+Wait-ProcessExit -Pid $WaitPid
+
 Write-Step "Snapdesk installer"
 Write-Step "Install location: $installDir"
 if (-not $NoPrompt -and [string]::IsNullOrWhiteSpace($InstallDir)) {
@@ -685,6 +733,18 @@ Start the app from the desktop icon or run:
 
 if ($wingetWarnings.Count -gt 0) {
     $summary += "`n`nSome optional components may need manual install (open winget or Microsoft Store if prompted):`n- " + ($wingetWarnings -join "`n- ")
+}
+
+if ($LaunchAfterInstall) {
+    Write-Step "Starting Snapdesk..."
+    if (-not (Start-InstalledSnapdesk $installDir)) {
+        Write-Host "Warning: install finished but Snapdesk could not be started from $installDir" -ForegroundColor Yellow
+    }
+}
+
+if ($LaunchAfterInstall -and $NoPrompt) {
+    Write-Host $summary -ForegroundColor Green
+    exit 0
 }
 
 Show-Message $summary "Snapdesk Setup"
