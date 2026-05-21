@@ -2,7 +2,7 @@
 
 Save and restore window layouts across monitors on Windows.
 
-[![Latest release](https://img.shields.io/github/v/release/DoctorJDWT/Snapdesk)](https://github.com/DoctorJDWT/Snapdesk/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/DoctorJDWT/Snapdesk?display_name=tag&label=release)](https://github.com/DoctorJDWT/Snapdesk/releases/latest)
 
 ## Download
 
