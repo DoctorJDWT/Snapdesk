@@ -43,6 +43,7 @@ public static class Program
         }
 
         StartupTrace.Write($"Exe: {exePath}");
+        CrashLog.WriteDiagnostic("Startup", CrashLog.FormatAssemblyIdentity());
         try
         {
             StartupTrace.Write($"BuildUtc: {File.GetLastWriteTimeUtc(exePath):u}");

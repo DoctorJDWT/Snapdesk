@@ -1637,7 +1637,10 @@ public sealed partial class MainWindow : Window
         _positionController?.PushFlyoutSuppress();
         try
         {
+            StartupTrace.Write("RunCreateProfileAsync: opening layout editor");
+            CrashLog.WriteDiagnostic("RunCreateProfileAsync", "before ProfileEditorDialog.ShowCreateAsync");
             result = await ProfileEditorDialog.ShowCreateAsync();
+            CrashLog.WriteDiagnostic("RunCreateProfileAsync", $"editor closed result={(result is not null)}");
         }
         catch (Exception ex)
         {
@@ -1733,7 +1736,10 @@ public sealed partial class MainWindow : Window
         _positionController?.PushFlyoutSuppress();
         try
         {
+            StartupTrace.Write($"RunEditAsync: opening layout editor for {row.DisplayName}");
+            CrashLog.WriteDiagnostic("RunEditAsync", $"before ShowEditAsync profile={row.DisplayName}");
             request = await ProfileEditorDialog.ShowEditAsync(row);
+            CrashLog.WriteDiagnostic("RunEditAsync", $"editor closed result={(request is not null)}");
         }
         catch (Exception ex)
         {

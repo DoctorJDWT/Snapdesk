@@ -7,7 +7,7 @@
     <AssemblyName>Snapdesk</AssemblyName>
     <Product>Snapdesk</Product>
     <AssemblyTitle>Snapdesk</AssemblyTitle>
-    <Version>1.0.15</Version>
+    <Version>1.0.16</Version>
     <UseAppHost>true</UseAppHost>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
@@ -38,5 +38,25 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.240923002" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
   </ItemGroup>
+
+  <!--
+    Unpackaged publish omits compiled XAML (.xbf) by default. Secondary Window pages then fail
+    InitializeComponent with "XAML parsing failed." Do not publish App.xbf without PRI/theme
+    resources (breaks XamlControlsResources / themeresources.xaml at startup).
+  -->
+  <Target Name="CopySecondaryWindowXbfToPublishDir" AfterTargets="Publish">
+    <ItemGroup>
+      <_SnapdeskSecondaryXbf
+        Include="$(OutputPath)ProfileEditorWindow.xbf;
+                 $(OutputPath)ProfileDeleteWindow.xbf;
+                 $(OutputPath)ProfileActionsWindow.xbf;
+                 $(OutputPath)UninstallConfirmWindow.xbf" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(_SnapdeskSecondaryXbf)"
+      DestinationFolder="$(PublishDir)"
+      SkipUnchangedFiles="true"
+      Condition="'$(PublishDir)' != '' and '@(_SnapdeskSecondaryXbf)' != ''" />
+  </Target>
 
 </Project>

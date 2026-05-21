@@ -49,6 +49,23 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+# Unpackaged publish omits secondary Window .xbf unless copied explicitly (see csproj target).
+$secondaryXbf = @(
+    "ProfileEditorWindow.xbf",
+    "ProfileDeleteWindow.xbf",
+    "ProfileActionsWindow.xbf",
+    "UninstallConfirmWindow.xbf"
+)
+$xbfOut = Join-Path $root "LayoutProfiles.WinUI\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64"
+foreach ($name in $secondaryXbf) {
+    $src = Join-Path $xbfOut $name
+    if (-not (Test-Path -LiteralPath $src)) {
+        Write-Error "Missing compiled XAML: $src (layout editor will fail at runtime)"
+    }
+    Copy-Item -LiteralPath $src -Destination $dist -Force
+}
+Write-Host "=== Copied secondary window .xbf into publish folder ===" -ForegroundColor Green
+
 $publishedExe = Get-ChildItem -LiteralPath $dist -Filter "*.exe" -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match "^(Snapdesk|LayoutProfiles\.WinUI)\.exe$" } |
     Select-Object -First 1
