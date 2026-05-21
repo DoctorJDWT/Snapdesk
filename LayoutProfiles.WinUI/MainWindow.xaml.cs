@@ -918,7 +918,7 @@ public sealed partial class MainWindow : Window
         {
             if (allowFitPresetResize)
             {
-                MaybeResizeForFitPreset();
+                MaybeResizeUndockedFromGumball(result);
             }
         }
     }
@@ -1134,6 +1134,31 @@ public sealed partial class MainWindow : Window
             + rows * chipUnit
             + MinChromeSlackPx);
         return (width, height);
+    }
+
+    /// <summary>Square client size fitting a gumball grid (max of column/row span).</summary>
+    private (int Width, int Height) ComputeUndockedSquareClientSize(int columns, int rows)
+    {
+        var chipUnit = ChipUnitPx();
+        var side = Math.Max(columns, rows) * chipUnit;
+        var width = (int)Math.Ceiling(2 * RootGridPaddingSide + side + PresetWidthSlackPx);
+        var height = (int)Math.Ceiling(
+            RootGridPaddingTop + RootGridPaddingBottom + side + MinChromeSlackPx);
+        width = Math.Max(width, GetMinClientWidth());
+        height = Math.Max(height, GetMinClientHeight());
+        return WindowGeometryHelper.ClampWidgetSize(
+            width,
+            height,
+            GetMinClientWidth(),
+            GetMinClientHeight());
+    }
+
+    private static (int Columns, int Rows) ResolveUndockedSquareGrid(int chipCount)
+    {
+        var chipsPerRow = (int)Math.Ceiling(Math.Sqrt(Math.Max(1, chipCount)));
+        var columns = Math.Min(chipsPerRow, chipCount);
+        var rows = (chipCount + chipsPerRow - 1) / chipsPerRow;
+        return (columns, rows);
     }
 
     private (int Width, int Height) ComputeClientSizeForPreset(WidgetSizePreset preset, int columns, int rows)
@@ -1361,8 +1386,19 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var (columns, rows) = ResolvePresetGrid(preset);
-            var (width, height) = ComputeClientSizeForPreset(preset, columns, rows);
+            int width;
+            int height;
+            if (_layoutDockEdge == WindowDockEdge.None)
+            {
+                var chipCount = Math.Max(1, _profileChipElements.Count);
+                var (columns, rows) = ResolveUndockedSquareGrid(chipCount);
+                (width, height) = ComputeUndockedSquareClientSize(columns, rows);
+            }
+            else
+            {
+                var (columns, rows) = ResolvePresetGrid(preset);
+                (width, height) = ComputeClientSizeForPreset(preset, columns, rows);
+            }
             var size = AppWindowRef.Size;
             if (size.Width != width || size.Height != height)
             {
@@ -1384,24 +1420,28 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void MaybeResizeForFitPreset()
+    private void MaybeResizeUndockedFromGumball(GumballLayoutResult result)
     {
-        if (_layoutDockEdge != WindowDockEdge.None
-            || !_geometryController.IsReadyForPersist
-            || !WidgetSizePresets.IsFit(_widgetSizePreset))
+        if (_layoutDockEdge != WindowDockEdge.None || !_geometryController.IsReadyForPersist)
         {
             return;
         }
 
         try
         {
-            var (columns, rows) = ResolvePresetGrid(_widgetSizePreset);
-            var (width, height) = ComputeClientSizeForPreset(_widgetSizePreset, columns, rows);
+            var columns = result.Count > 0
+                ? Math.Min(result.ChipsPerRow, result.Count)
+                : 1;
+            var (width, height) = ComputeUndockedSquareClientSize(columns, result.Rows);
             var size = AppWindowRef.Size;
-            if (size.Width != width || size.Height != height)
+            if (size.Width == width && size.Height == height)
             {
-                AppWindowRef.Resize(new SizeInt32(width, height));
+                return;
             }
+
+            AppWindowRef.Resize(new SizeInt32(width, height));
+            _gumballLayout.Reset();
+            DispatcherQueue.TryEnqueue(() => ApplyGumballLayout(allowFitPresetResize: false));
         }
         catch
         {
