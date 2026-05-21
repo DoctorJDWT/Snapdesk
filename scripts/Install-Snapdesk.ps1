@@ -451,8 +451,78 @@ namespace Snapdesk
 '@
 }
 
+function Test-IsComClassNotRegistered([System.Exception] $Exception) {
+    if ($null -eq $Exception) {
+        return $false
+    }
+    $hr = $Exception.HResult
+    if ($hr -eq -2147221164 -or $hr -eq 0x80040154) {
+        return $true
+    }
+    $msg = $Exception.Message
+    return $msg -match '80040154|Class not registered|REGDB_E_CLASSNOTREG'
+}
+
+function Show-InstallFolderPickerWinForms([string] $Title, [string] $InitialPath) {
+    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dialog.Description = $Title
+    $dialog.UseDescriptionForTitle = $true
+    $dialog.AutoUpgradeEnabled = $true
+    if (-not [string]::IsNullOrWhiteSpace($InitialPath) -and (Test-Path -LiteralPath $InitialPath)) {
+        $dialog.SelectedPath = $InitialPath
+    }
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $dialog.SelectedPath
+    }
+    return $null
+}
+
+function Invoke-InstallFolderPickerOnSta([scriptblock] $Picker) {
+    $current = [System.Threading.Thread]::CurrentThread.GetApartmentState()
+    if ($current -eq [System.Threading.ApartmentState]::STA) {
+        return & $Picker
+    }
+
+    $state = @{
+        Result = $null
+        Error  = $null
+    }
+    $thread = [System.Threading.Thread]::new({
+        param($s, $block)
+        try {
+            $s.Result = & $block
+        }
+        catch {
+            $s.Error = $_
+        }
+    })
+    $thread.SetApartmentState([System.Threading.ApartmentState]::STA)
+    $thread.Start($state, $Picker)
+    $thread.Join()
+    if ($state.Error) {
+        throw $state.Error
+    }
+    return $state.Result
+}
+
+function Show-InstallFolderPicker([string] $Title, [string] $InitialPath) {
+    $picker = {
+        param($dialogTitle, $dialogInitial)
+        try {
+            Ensure-InstallFolderPickerType
+            return [Snapdesk.InstallFolderPicker]::Show($dialogTitle, $dialogInitial)
+        }
+        catch {
+            if (-not (Test-IsComClassNotRegistered $_.Exception)) {
+                Write-Verbose "IFileOpenDialog folder picker failed; using WinForms fallback: $($_.Exception.Message)"
+            }
+            return Show-InstallFolderPickerWinForms $dialogTitle $dialogInitial
+        }
+    }
+    return Invoke-InstallFolderPickerOnSta { & $picker $Title $InitialPath }
+}
+
 function Select-InstallDirectory([string] $SuggestedPath) {
-    Ensure-InstallFolderPickerType
     $title = "Choose where to install Snapdesk. A Snapdesk folder is created inside the folder you pick unless you select an existing Snapdesk install folder."
     $initialPath = if ([string]::IsNullOrWhiteSpace($SuggestedPath)) {
         Get-DefaultInstallDir
@@ -464,7 +534,7 @@ function Select-InstallDirectory([string] $SuggestedPath) {
     if (-not $initialPath) {
         $initialPath = $env:USERPROFILE
     }
-    $picked = [Snapdesk.InstallFolderPicker]::Show($title, $initialPath)
+    $picked = Show-InstallFolderPicker $title $initialPath
     if ([string]::IsNullOrWhiteSpace($picked)) {
         return $null
     }

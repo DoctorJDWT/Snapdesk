@@ -45,6 +45,7 @@ internal sealed class GumballGridLayout
                 Rows: rows,
                 ChipsPerRow: chipsPerRow,
                 HostWidth: hostWidth,
+                HostHeight: hostHeight,
                 ClientWidth: clientWidth);
         }
 
@@ -102,6 +103,7 @@ internal sealed class GumballGridLayout
             Rows: rows,
             ChipsPerRow: chipsPerRow,
             HostWidth: hostWidth,
+            HostHeight: hostHeight,
             ClientWidth: clientWidth);
     }
 
@@ -180,4 +182,5 @@ internal sealed record GumballLayoutResult(
     int Rows,
     int ChipsPerRow,
     int HostWidth,
+    int HostHeight,
     int ClientWidth);

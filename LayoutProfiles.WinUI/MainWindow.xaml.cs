@@ -907,7 +907,7 @@ public sealed partial class MainWindow : Window
 
         StartupTrace.Write(
             $"ApplyGumballLayout chips={result.Count} grid={result.Rows}x{result.ChipsPerRow} "
-            + $"hostW={result.HostWidth} clientW={result.ClientWidth} "
+            + $"host={result.HostWidth}x{result.HostHeight} clientW={result.ClientWidth} "
             + $"scroll={_profileScrollViewer.ActualWidth:F0}x{_profileScrollViewer.ActualHeight:F0}");
 
         if (_profileScrollViewer.ActualWidth <= 0)
@@ -1136,29 +1136,28 @@ public sealed partial class MainWindow : Window
         return (width, height);
     }
 
-    /// <summary>Square client size fitting a gumball grid (max of column/row span).</summary>
-    private (int Width, int Height) ComputeUndockedSquareClientSize(int columns, int rows)
+    /// <summary>Undocked: square client size from measured gumball host bounds + chrome.</summary>
+    private (int Width, int Height) ComputeUndockedSquareClientSize(GumballLayoutResult layout)
     {
-        var chipUnit = ChipUnitPx();
-        var side = Math.Max(columns, rows) * chipUnit;
-        var width = (int)Math.Ceiling(2 * RootGridPaddingSide + side + PresetWidthSlackPx);
+        var gumballSide = Math.Max(layout.HostWidth, layout.HostHeight);
+        var statusReserve = _statusText.Visibility == Visibility.Visible
+            ? (int)Math.Ceiling(_statusText.ActualHeight + 8)
+            : 0;
+        var width = (int)Math.Ceiling(2 * RootGridPaddingSide + gumballSide + PresetWidthSlackPx);
         var height = (int)Math.Ceiling(
-            RootGridPaddingTop + RootGridPaddingBottom + side + MinChromeSlackPx);
-        width = Math.Max(width, GetMinClientWidth());
-        height = Math.Max(height, GetMinClientHeight());
+            RootGridPaddingTop
+            + RootGridPaddingBottom
+            + gumballSide
+            + MinChromeSlackPx
+            + statusReserve);
+        var side = Math.Max(width, height);
+        side = Math.Max(side, GetMinClientWidth());
+        side = Math.Max(side, GetMinClientHeight());
         return WindowGeometryHelper.ClampWidgetSize(
-            width,
-            height,
+            side,
+            side,
             GetMinClientWidth(),
             GetMinClientHeight());
-    }
-
-    private static (int Columns, int Rows) ResolveUndockedSquareGrid(int chipCount)
-    {
-        var chipsPerRow = (int)Math.Ceiling(Math.Sqrt(Math.Max(1, chipCount)));
-        var columns = Math.Min(chipsPerRow, chipCount);
-        var rows = (chipCount + chipsPerRow - 1) / chipsPerRow;
-        return (columns, rows);
     }
 
     private (int Width, int Height) ComputeClientSizeForPreset(WidgetSizePreset preset, int columns, int rows)
@@ -1386,23 +1385,15 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            int width;
-            int height;
-            if (_layoutDockEdge == WindowDockEdge.None)
-            {
-                var chipCount = Math.Max(1, _profileChipElements.Count);
-                var (columns, rows) = ResolveUndockedSquareGrid(chipCount);
-                (width, height) = ComputeUndockedSquareClientSize(columns, rows);
-            }
-            else
+            if (_layoutDockEdge != WindowDockEdge.None)
             {
                 var (columns, rows) = ResolvePresetGrid(preset);
-                (width, height) = ComputeClientSizeForPreset(preset, columns, rows);
-            }
-            var size = AppWindowRef.Size;
-            if (size.Width != width || size.Height != height)
-            {
-                AppWindowRef.Resize(new SizeInt32(width, height));
+                var (width, height) = ComputeClientSizeForPreset(preset, columns, rows);
+                var size = AppWindowRef.Size;
+                if (size.Width != width || size.Height != height)
+                {
+                    AppWindowRef.Resize(new SizeInt32(width, height));
+                }
             }
 
             ApplyMinimumWindowSize();
@@ -1429,10 +1420,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var columns = result.Count > 0
-                ? Math.Min(result.ChipsPerRow, result.Count)
-                : 1;
-            var (width, height) = ComputeUndockedSquareClientSize(columns, result.Rows);
+            var (width, height) = ComputeUndockedSquareClientSize(result);
             var size = AppWindowRef.Size;
             if (size.Width == width && size.Height == height)
             {
