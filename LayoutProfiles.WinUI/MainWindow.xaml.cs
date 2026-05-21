@@ -10,6 +10,7 @@ using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using System.Runtime.InteropServices;
+using Windows.System;
 using Windows.Graphics;
 using Windows.UI;
 using WinRT.Interop;
@@ -63,6 +64,7 @@ public sealed partial class MainWindow : Window
     private readonly ProfileService _profiles;
     private readonly SettingsService _settings;
     private readonly PythonBridge _python;
+    private readonly GitHubReleaseUpdateChecker _updateChecker = new();
     private readonly WindowGeometryController _geometryController;
     private Dictionary<string, System.Text.Json.JsonElement> _settingsCache = new();
     private bool _busy;
@@ -74,6 +76,10 @@ public sealed partial class MainWindow : Window
     private MenuFlyoutItem? _themeDarkItem;
     private MenuFlyoutItem? _themeLightItem;
     private MenuFlyoutItem? _themeSystemItem;
+    private MenuFlyoutItem? _checkForUpdatesItem;
+    private MenuFlyoutItem? _updateAvailableItem;
+    private ReleaseCheckResult? _cachedUpdateResult;
+    private bool _updateCheckInProgress;
     private WidgetSizePreset _widgetSizePreset = WidgetSizePreset.OneByOne;
     private WindowDockEdge _layoutDockEdge = WindowDockEdge.None;
     private bool _applyingDockLayout;
@@ -262,6 +268,20 @@ public sealed partial class MainWindow : Window
         settingsSub.Items.Add(_themeSystemItem);
         settingsSub.Items.Add(new MenuFlyoutSeparator());
 
+        _checkForUpdatesItem = new MenuFlyoutItem { Text = "Check for updates" };
+        _checkForUpdatesItem.Click += OnCheckForUpdatesClick;
+
+        _updateAvailableItem = new MenuFlyoutItem
+        {
+            Text = "Update available",
+            Visibility = Visibility.Collapsed,
+        };
+        _updateAvailableItem.Click += OnUpdateAvailableClick;
+
+        settingsSub.Items.Add(_checkForUpdatesItem);
+        settingsSub.Items.Add(_updateAvailableItem);
+        settingsSub.Items.Add(new MenuFlyoutSeparator());
+
         var uninstallItem = new MenuFlyoutItem
         {
             Text = "Uninstall Snapdesk...",
@@ -285,6 +305,7 @@ public sealed partial class MainWindow : Window
         _rootContextFlyout.Opening += (_, _) =>
         {
             SyncThemeMenuChecks();
+            SyncUpdateMenuFromCache();
             _positionController?.PushFlyoutSuppress();
         };
         _rootContextFlyout.Closed += (_, _) => _positionController?.PopFlyoutSuppress();
@@ -440,6 +461,94 @@ public sealed partial class MainWindow : Window
     private void OnExitAppClick(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void SyncUpdateMenuFromCache()
+    {
+        if (_updateAvailableItem is null)
+        {
+            return;
+        }
+
+        if (_cachedUpdateResult is { Succeeded: true, IsUpdateAvailable: true, LatestVersion: { } latest })
+        {
+            _updateAvailableItem.Text = $"Update available ({latest})";
+            _updateAvailableItem.Visibility = Visibility.Visible;
+            return;
+        }
+
+        _updateAvailableItem.Visibility = Visibility.Collapsed;
+    }
+
+    private async void OnCheckForUpdatesClick(object sender, RoutedEventArgs e)
+    {
+        if (_updateCheckInProgress || _checkForUpdatesItem is null)
+        {
+            return;
+        }
+
+        _updateCheckInProgress = true;
+        _checkForUpdatesItem.IsEnabled = false;
+        var previousText = _checkForUpdatesItem.Text;
+        _checkForUpdatesItem.Text = "Checking for updates…";
+
+        try
+        {
+            var result = await _updateChecker.CheckLatestAsync().ConfigureAwait(true);
+            _cachedUpdateResult = result;
+            SyncUpdateMenuFromCache();
+
+            var caption = result.Succeeded && result.IsUpdateAvailable
+                ? "Update available"
+                : result.Succeeded
+                    ? "Snapdesk is up to date"
+                    : "Update check failed";
+
+            var icon = result.Succeeded
+                ? (result.IsUpdateAvailable ? MbIconInformation : MbOk)
+                : MbIconWarning;
+
+            ShowMessageBox("Snapdesk", result.StatusMessage, icon);
+
+            if (result.Succeeded && result.IsUpdateAvailable)
+            {
+                var open = ShowMessageBox(
+                    "Snapdesk",
+                    "Open the release page in your browser to download the installer?",
+                    MbYesNo | MbIconQuestion);
+                if (open == IdYes)
+                {
+                    await OpenReleasePageAsync(result.ReleasePageUrl);
+                }
+            }
+        }
+        finally
+        {
+            _updateCheckInProgress = false;
+            _checkForUpdatesItem.IsEnabled = true;
+            _checkForUpdatesItem.Text = previousText;
+        }
+    }
+
+    private async void OnUpdateAvailableClick(object sender, RoutedEventArgs e)
+    {
+        var url = _cachedUpdateResult?.ReleasePageUrl ?? GitHubReleaseUpdateChecker.ReleasesLatestPage;
+        await OpenReleasePageAsync(url);
+    }
+
+    private static async Task OpenReleasePageAsync(string url)
+    {
+        try
+        {
+            _ = await Launcher.LaunchUriAsync(new Uri(url));
+        }
+        catch (Exception ex)
+        {
+            ShowMessageBox(
+                "Snapdesk",
+                $"Could not open the browser: {ex.Message}",
+                MbIconError);
+        }
     }
 
     private async void OnUninstallClick(object sender, RoutedEventArgs e)
@@ -1767,20 +1876,28 @@ public sealed partial class MainWindow : Window
         ShowErrorMessageBox("Snapdesk", message);
     }
 
-    private static void ShowErrorMessageBox(string title, string message)
+    private static void ShowErrorMessageBox(string title, string message) =>
+        ShowMessageBox(title, message, MbOk | MbIconError);
+
+    private static int ShowMessageBox(string title, string message, uint type)
     {
         try
         {
-            _ = MessageBoxW(IntPtr.Zero, message, title, MbOk | MbIconError);
+            return MessageBoxW(IntPtr.Zero, message, title, type);
         }
         catch
         {
-            // ignore — status line still shows the error
+            return 0;
         }
     }
 
     private const uint MbOk = 0x00000000;
+    private const uint MbYesNo = 0x00000004;
+    private const int IdYes = 6;
     private const uint MbIconError = 0x00000010;
+    private const uint MbIconWarning = 0x00000030;
+    private const uint MbIconInformation = 0x00000040;
+    private const uint MbIconQuestion = 0x00000020;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, BestFitMapping = false)]
     private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
