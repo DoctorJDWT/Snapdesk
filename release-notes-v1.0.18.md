@@ -1,0 +1,3 @@
+- **Automatic update checks** on launch (silent, non-blocking): no dialog when up to date or on network errors; logs to `snapdesk-startup.log` only.
+- **Once per day** throttling via `last_update_check_utc` in `%LOCALAPPDATA%/LayoutProfiles/settings.json`; manual **Check for updates** always hits GitHub and still shows dialogs.
+- When a newer release exists, **Update available (vX.Y.Z)** appears in Settings without blocking startup.

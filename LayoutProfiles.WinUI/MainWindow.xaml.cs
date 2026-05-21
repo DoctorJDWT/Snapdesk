@@ -65,6 +65,7 @@ public sealed partial class MainWindow : Window
     private readonly SettingsService _settings;
     private readonly PythonBridge _python;
     private readonly GitHubReleaseUpdateChecker _updateChecker = new();
+    private readonly AutoUpdateCheckService _autoUpdateCheck;
     private readonly WindowGeometryController _geometryController;
     private Dictionary<string, System.Text.Json.JsonElement> _settingsCache = new();
     private bool _busy;
@@ -92,6 +93,7 @@ public sealed partial class MainWindow : Window
         // MainWindow.xaml is an empty shell; UI is built in BuildUi() (no InitializeComponent — avoids IDE CS0103 when XAML codegen isn’t loaded).
         _profiles = new ProfileService();
         _settings = new SettingsService();
+        _autoUpdateCheck = new AutoUpdateCheckService(_settings, _updateChecker);
         _python = new PythonBridge();
         _geometryController = new WindowGeometryController(
             this,
@@ -144,6 +146,8 @@ public sealed partial class MainWindow : Window
             StartupTrace.Write(
                 $"FinishStartup end chips={_profileChipElements.Count} "
                 + $"window={AppWindowRef.Size.Width}x{AppWindowRef.Size.Height}");
+
+            ScheduleBackgroundUpdateCheck();
         }
         catch (Exception ex)
         {
@@ -504,54 +508,142 @@ public sealed partial class MainWindow : Window
         _updateAvailableItem.Visibility = Visibility.Collapsed;
     }
 
-    private async void OnCheckForUpdatesClick(object sender, RoutedEventArgs e)
+    private void ScheduleBackgroundUpdateCheck()
     {
-        if (_updateCheckInProgress || _checkForUpdatesItem is null)
+        _ = RunUpdateCheckAsync(force: false, showDialogs: false);
+    }
+
+    private async Task RunUpdateCheckAsync(bool force, bool showDialogs)
+    {
+        if (_updateCheckInProgress)
         {
             return;
         }
 
         _updateCheckInProgress = true;
-        _checkForUpdatesItem.IsEnabled = false;
-        var previousText = _checkForUpdatesItem.Text;
-        _checkForUpdatesItem.Text = "Checking for updates…";
+        var previousText = _checkForUpdatesItem?.Text;
+        if (showDialogs && _checkForUpdatesItem is not null)
+        {
+            _checkForUpdatesItem.IsEnabled = false;
+            _checkForUpdatesItem.Text = "Checking for updates…";
+        }
 
         try
         {
-            var result = await _updateChecker.CheckLatestAsync().ConfigureAwait(true);
-            _cachedUpdateResult = result;
-            SyncUpdateMenuFromCache();
+            var (skipped, result) = await _autoUpdateCheck
+                .CheckAsync(_settingsCache, force)
+                .ConfigureAwait(showDialogs);
 
-            var caption = result.Succeeded && result.IsUpdateAvailable
-                ? "Update available"
-                : result.Succeeded
-                    ? "Snapdesk is up to date"
-                    : "Update check failed";
-
-            var icon = result.Succeeded
-                ? (result.IsUpdateAvailable ? MbIconInformation : MbOk)
-                : MbIconWarning;
-
-            ShowMessageBox("Snapdesk", result.StatusMessage, icon);
-
-            if (result.Succeeded && result.IsUpdateAvailable)
+            if (skipped)
             {
-                var open = ShowMessageBox(
-                    "Snapdesk",
-                    "Open the release page in your browser to download the installer?",
-                    MbYesNo | MbIconQuestion);
-                if (open == IdYes)
-                {
-                    await OpenReleasePageAsync(result.ReleasePageUrl);
-                }
+                StartupTrace.Write("Update check skipped (checked within 24h)");
+                return;
             }
+
+            if (result is null)
+            {
+                return;
+            }
+
+            ReloadSettingsCache();
+            ApplyUpdateCheckResultOnUiThread(result);
+
+            if (showDialogs)
+            {
+                ShowManualUpdateCheckDialogs(result);
+            }
+            else
+            {
+                LogSilentUpdateCheckResult(result);
+            }
+        }
+        catch (Exception ex)
+        {
+            StartupTrace.Write($"Update check error: {ex.Message}");
         }
         finally
         {
             _updateCheckInProgress = false;
-            _checkForUpdatesItem.IsEnabled = true;
-            _checkForUpdatesItem.Text = previousText;
+            if (showDialogs && _checkForUpdatesItem is not null)
+            {
+                _checkForUpdatesItem.IsEnabled = true;
+                _checkForUpdatesItem.Text = previousText ?? "Check for updates";
+            }
         }
+    }
+
+    private void ApplyUpdateCheckResultOnUiThread(ReleaseCheckResult result)
+    {
+        void Apply()
+        {
+            _cachedUpdateResult = result;
+            SyncUpdateMenuFromCache();
+        }
+
+        var queue = DispatcherQueue;
+        if (queue.HasThreadAccess)
+        {
+            Apply();
+            return;
+        }
+
+        queue.TryEnqueue(Apply);
+    }
+
+    private void ReloadSettingsCache()
+    {
+        _settingsCache = _settings.Load();
+    }
+
+    private static void LogSilentUpdateCheckResult(ReleaseCheckResult result)
+    {
+        if (!result.Succeeded)
+        {
+            StartupTrace.Write($"Update check failed: {result.ErrorMessage ?? "unknown"}");
+            return;
+        }
+
+        if (result.IsUpdateAvailable && result.LatestVersion is not null)
+        {
+            StartupTrace.Write(
+                $"Update available: {result.LatestVersion} (current {result.CurrentVersion})");
+            return;
+        }
+
+        StartupTrace.Write($"Up to date ({result.CurrentVersion})");
+    }
+
+    private void ShowManualUpdateCheckDialogs(ReleaseCheckResult result)
+    {
+        var icon = result.Succeeded
+            ? (result.IsUpdateAvailable ? MbIconInformation : MbOk)
+            : MbIconWarning;
+
+        ShowMessageBox("Snapdesk", result.StatusMessage, icon);
+
+        if (!result.Succeeded || !result.IsUpdateAvailable)
+        {
+            return;
+        }
+
+        var open = ShowMessageBox(
+            "Snapdesk",
+            "Open the release page in your browser to download the installer?",
+            MbYesNo | MbIconQuestion);
+        if (open == IdYes)
+        {
+            _ = OpenReleasePageAsync(result.ReleasePageUrl);
+        }
+    }
+
+    private async void OnCheckForUpdatesClick(object sender, RoutedEventArgs e)
+    {
+        if (_checkForUpdatesItem is null)
+        {
+            return;
+        }
+
+        await RunUpdateCheckAsync(force: true, showDialogs: true).ConfigureAwait(true);
     }
 
     private async void OnUpdateAvailableClick(object sender, RoutedEventArgs e)

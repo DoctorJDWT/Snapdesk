@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
@@ -66,6 +67,16 @@ public sealed class SettingsService
     public bool GetRunOnStartup(Dictionary<string, JsonElement> settings) =>
         settings.TryGetValue("gui_run_on_startup", out var el)
         && el.ValueKind == JsonValueKind.True;
+
+    public void SaveLastUpdateCheckUtc(DateTimeOffset utcNow)
+    {
+        MergeAndSave(new Dictionary<string, object?>
+        {
+            [AutoUpdateCheckService.LastUpdateCheckUtcKey] = utcNow.UtcDateTime.ToString(
+                "o",
+                CultureInfo.InvariantCulture),
+        });
+    }
 
     public WidgetSizePreset GetWidgetSizePreset(Dictionary<string, JsonElement> settings)
     {
