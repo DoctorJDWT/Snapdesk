@@ -77,6 +77,7 @@ public sealed partial class MainWindow : Window
     private MenuFlyoutItem? _themeLightItem;
     private MenuFlyoutItem? _themeSystemItem;
     private MenuFlyoutItem? _checkForUpdatesItem;
+    private MenuFlyoutItem? _versionMenuItem;
     private MenuFlyoutItem? _updateAvailableItem;
     private ReleaseCheckResult? _cachedUpdateResult;
     private bool _updateCheckInProgress;
@@ -289,6 +290,9 @@ public sealed partial class MainWindow : Window
         };
         uninstallItem.Click += OnUninstallClick;
         settingsSub.Items.Add(uninstallItem);
+        settingsSub.Items.Add(new MenuFlyoutSeparator());
+        _versionMenuItem = CreateVersionMenuItem();
+        settingsSub.Items.Add(_versionMenuItem);
 
         var exitItem = new MenuFlyoutItem { Text = "Exit Snapdesk" };
         exitItem.Click += OnExitAppClick;
@@ -306,6 +310,7 @@ public sealed partial class MainWindow : Window
         {
             SyncThemeMenuChecks();
             SyncUpdateMenuFromCache();
+            SyncVersionMenuItem();
             _positionController?.PushFlyoutSuppress();
         };
         _rootContextFlyout.Closed += (_, _) => _positionController?.PopFlyoutSuppress();
@@ -320,6 +325,25 @@ public sealed partial class MainWindow : Window
         var item = new MenuFlyoutItem { Text = label, Tag = preference };
         item.Click += (_, _) => SetThemePreference(preference);
         return item;
+    }
+
+    private static MenuFlyoutItem CreateVersionMenuItem() =>
+        new()
+        {
+            Text = $"Version {AppVersion.Display}",
+            IsEnabled = false,
+            Opacity = 0.75,
+            Foreground = AppTheme.Palette.Muted,
+        };
+
+    private void SyncVersionMenuItem()
+    {
+        if (_versionMenuItem is null)
+        {
+            return;
+        }
+
+        _versionMenuItem.Foreground = AppTheme.Palette.Muted;
     }
 
     private void SetThemePreference(ThemePreference preference)
