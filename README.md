@@ -2,9 +2,19 @@
 
 Save and restore window layouts across monitors on Windows.
 
+[![Latest release](https://img.shields.io/github/v/release/DoctorJDWT/Snapdesk)](https://github.com/DoctorJDWT/Snapdesk/releases/latest)
+
+## Download
+
+**[Download Snapdesk for Windows](https://github.com/DoctorJDWT/Snapdesk/releases/latest)** — get **`Snapdesk-Setup.zip`**, extract it, then run **Install Snapdesk.cmd** (see [Install](#install-no-command-line) below).
+
+Direct link (latest release asset): [Snapdesk-Setup.zip](https://github.com/DoctorJDWT/Snapdesk/releases/latest/download/Snapdesk-Setup.zip)
+
+Requires **Windows 10/11 (x64)**.
+
 ## Install (no command line)
 
-1. Get **`Snapdesk-Setup.zip`** (from a release) or build it locally (see below).
+1. Download **`Snapdesk-Setup.zip`** from the [latest release](https://github.com/DoctorJDWT/Snapdesk/releases/latest), or build it locally (see [Build](#build) below).
 2. Extract the zip and double-click **`Install Snapdesk.cmd`**.
 3. Approve any **winget** prompts if Windows asks (Python 3.12, optional Windows App Runtime).
 4. Use the **Snapdesk** desktop shortcut.
