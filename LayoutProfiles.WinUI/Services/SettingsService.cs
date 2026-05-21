@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using LayoutProfiles.WinUI.Helpers;
 
@@ -7,6 +8,12 @@ namespace LayoutProfiles.WinUI.Services;
 
 public sealed class SettingsService
 {
+    private static readonly JsonSerializerOptions WriteJsonOptions = new()
+    {
+        WriteIndented = true,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
+    };
+
     private static readonly Regex GeometryRe = new(
         @"^(\d+)x(\d+)([+-]\d+)([+-]\d+)$",
         RegexOptions.Compiled);
@@ -50,21 +57,10 @@ public sealed class SettingsService
 
         foreach (var (key, value) in updates)
         {
-            root[key] = value switch
-            {
-                null => null,
-                string s => s,
-                bool b => b,
-                int i => i,
-                long l => l,
-                double d => d,
-                _ => JsonValue.Create(value),
-            };
+            root[key] = CreateSettingsNode(value);
         }
 
-        File.WriteAllText(
-            path,
-            root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(path, root.ToJsonString(WriteJsonOptions));
     }
 
     public bool GetRunOnStartup(Dictionary<string, JsonElement> settings) =>
@@ -80,6 +76,39 @@ public sealed class SettingsService
         }
 
         return WidgetSizePreset.OneByOne;
+    }
+
+    public IReadOnlyList<string>? GetProfileOrder(Dictionary<string, JsonElement> settings)
+    {
+        if (!settings.TryGetValue("profile_order", out var el) || el.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var list = new List<string>();
+        foreach (var item in el.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var path = item.GetString();
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                list.Add(path);
+            }
+        }
+
+        return list.Count > 0 ? list : null;
+    }
+
+    public void SaveProfileOrder(IReadOnlyList<string> orderedPaths)
+    {
+        MergeAndSave(new Dictionary<string, object?>
+        {
+            ["profile_order"] = orderedPaths.ToArray(),
+        });
     }
 
     public ThemePreference GetThemePreference(Dictionary<string, JsonElement> settings)
@@ -191,6 +220,35 @@ public sealed class SettingsService
         catch (IOException)
         {
             return new JsonObject();
+        }
+    }
+
+    private static JsonNode? CreateSettingsNode(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                return null;
+            case string s:
+                return s;
+            case bool b:
+                return b;
+            case int i:
+                return i;
+            case long l:
+                return l;
+            case double d:
+                return d;
+            case IEnumerable<string> strings:
+                var array = new JsonArray();
+                foreach (var item in strings)
+                {
+                    array.Add(item);
+                }
+
+                return array;
+            default:
+                return JsonSerializer.SerializeToNode(value, WriteJsonOptions);
         }
     }
 }

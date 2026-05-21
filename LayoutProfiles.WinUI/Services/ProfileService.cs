@@ -44,6 +44,42 @@ public sealed class ProfileService
         return rows.OrderBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    public static IReadOnlyList<ProfileRow> ApplyDisplayOrder(
+        IReadOnlyList<ProfileRow> rows,
+        IReadOnlyList<string>? savedOrder)
+    {
+        if (savedOrder is null || savedOrder.Count == 0)
+        {
+            return rows;
+        }
+
+        var byPath = rows.ToDictionary(r => r.FilePath, StringComparer.OrdinalIgnoreCase);
+        var result = new List<ProfileRow>(rows.Count);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var path in savedOrder)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            if (byPath.TryGetValue(path, out var row) && seen.Add(path))
+            {
+                result.Add(row);
+            }
+        }
+
+        foreach (var row in rows
+                     .Where(r => !seen.Contains(r.FilePath))
+                     .OrderBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            result.Add(row);
+        }
+
+        return result;
+    }
+
     public IReadOnlyList<PickableWindow> ReadProfileWindows(string filePath)
     {
         var list = new List<PickableWindow>();

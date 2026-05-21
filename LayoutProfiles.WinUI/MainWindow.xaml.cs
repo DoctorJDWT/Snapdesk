@@ -26,7 +26,9 @@ public sealed partial class MainWindow : Window
     private WindowGlassBackdropHelper? _glassBackdrop;
     private ScrollViewer _profileScrollViewer = null!;
     private Grid _profileChipHost = null!;
+    private Grid _profileChipOverlay = null!;
     private GumballGridLayout _gumballLayout = null!;
+    private ProfileChipReorderController? _chipReorder;
     private Button _addChip = null!;
     private readonly List<UIElement> _profileChipElements = new();
     private TextBlock _statusText = null!;
@@ -114,7 +116,7 @@ public sealed partial class MainWindow : Window
             SyncSizeMenuChecks();
             ApplyWidgetChromeFromTheme();
 
-            EnsureAddChipFirst();
+            EnsureAddChipLast();
             SafeRefreshProfiles();
             ScheduleGumballLayoutAfterMeasure();
             HookGumballLayoutWhenReady();
@@ -175,6 +177,17 @@ public sealed partial class MainWindow : Window
             Background = transparent,
             HorizontalAlignment = HorizontalAlignment.Center,
         };
+        // Overlay wraps the chip host so the reorder insertion-line can sit as a sibling and
+        // never get wiped out by GumballGridLayout.Apply()'s chipHost.Children.Clear().
+        // Stretch so the ScrollViewer's HorizontalContentAlignment governs centering, and the
+        // chip host's own HorizontalAlignment (managed by GumballGridLayout) keeps working.
+        _profileChipOverlay = new Grid
+        {
+            Background = transparent,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        _profileChipOverlay.Children.Add(_profileChipHost);
         _profileScrollViewer = new ScrollViewer
         {
             Background = transparent,
@@ -183,12 +196,19 @@ public sealed partial class MainWindow : Window
             HorizontalContentAlignment = HorizontalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
-            Content = _profileChipHost,
+            Content = _profileChipOverlay,
             MinWidth = chipUnit,
             MinHeight = chipUnit,
         };
         _profileScrollViewer.SizeChanged += (_, _) => ApplyGumballLayout(allowFitPresetResize: false);
         _gumballLayout = new GumballGridLayout(_profileScrollViewer, _profileChipHost, chipUnit);
+        _chipReorder = new ProfileChipReorderController(
+            this,
+            _profileChipHost,
+            _profileChipOverlay,
+            GetProfileChipButtons,
+            OnProfileChipsReordered,
+            () => _busy);
 
         Grid.SetRow(_profileScrollViewer, 0);
 
@@ -503,7 +523,7 @@ public sealed partial class MainWindow : Window
         StartupTrace.Write(
             $"RootLoaded scroll={_profileScrollViewer.ActualWidth:F0}x{_profileScrollViewer.ActualHeight:F0} "
             + $"profiles={_profileChipElements.Count}");
-        EnsureAddChipFirst();
+        EnsureAddChipLast();
         _gumballLayout.Reset();
         SafeRefreshProfiles();
         ApplyGumballLayout();
@@ -597,7 +617,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplyGumballLayout(bool allowFitPresetResize = true)
     {
-        EnsureAddChipFirst();
+        EnsureAddChipLast();
         var clientWidth = WidthForGumballColumnCount();
         var result = _gumballLayout.Apply(
             _profileChipElements,
@@ -627,7 +647,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void EnsureAddChipFirst()
+    private void EnsureAddChipLast()
     {
         if (_addChip.Parent is Panel parent)
         {
@@ -635,10 +655,10 @@ public sealed partial class MainWindow : Window
         }
 
         _addChip.Visibility = Visibility.Visible;
-        if (_profileChipElements.Count == 0 || _profileChipElements[0] != _addChip)
+        if (_profileChipElements.Count == 0 || _profileChipElements[^1] != _addChip)
         {
             _profileChipElements.Remove(_addChip);
-            _profileChipElements.Insert(0, _addChip);
+            _profileChipElements.Add(_addChip);
         }
     }
 
@@ -768,7 +788,7 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(() =>
             DispatcherQueue.TryEnqueue(() =>
             {
-                EnsureAddChipFirst();
+                EnsureAddChipLast();
                 _gumballLayout.Reset();
                 ApplyGumballLayout();
                 if (_profileScrollViewer.ActualWidth <= 0)
@@ -783,7 +803,7 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(() =>
             DispatcherQueue.TryEnqueue(() =>
             {
-                EnsureAddChipFirst();
+                EnsureAddChipLast();
                 _gumballLayout.Reset();
                 ApplyGumballLayout();
             }));
@@ -1019,13 +1039,15 @@ public sealed partial class MainWindow : Window
 
     private void RefreshProfiles()
     {
+        _chipReorder?.DetachAll();
         _profileChipElements.Clear();
-        _profileChipElements.Add(_addChip);
 
         IReadOnlyList<ProfileRow> rows;
         try
         {
-            rows = _profiles.ListProfiles();
+            rows = ProfileService.ApplyDisplayOrder(
+                _profiles.ListProfiles(),
+                _settings.GetProfileOrder(_settingsCache));
         }
         catch (Exception ex)
         {
@@ -1037,6 +1059,8 @@ public sealed partial class MainWindow : Window
         {
             _profileChipElements.Add(CreateProfileChip(row));
         }
+
+        _profileChipElements.Add(_addChip);
 
         _gumballLayout.Reset();
         ApplyGumballLayout();
@@ -1119,7 +1143,10 @@ public sealed partial class MainWindow : Window
                 VerticalAlignment = VerticalAlignment.Center,
             },
         };
-        ToolTipService.SetToolTip(btn, $"{row.DisplayName} ({row.WindowCount} windows) — click restore, right-click edit or delete");
+        ToolTipService.SetToolTip(
+            btn,
+            $"{row.DisplayName} ({row.WindowCount} windows) — click restore, drag to reorder, right-click edit or delete");
+        _chipReorder?.Attach(btn);
 
         var editItem = new MenuFlyoutItem { Text = "Edit layout" };
         editItem.Click += async (_, _) => await RunEditAsync(row);
@@ -1143,7 +1170,119 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (_chipReorder?.ShouldSuppressClick(sender as Button) == true)
+        {
+            return;
+        }
+
         await RunRestoreAsync(row);
+    }
+
+    private IReadOnlyList<Button> GetProfileChipButtons()
+    {
+        var list = new List<Button>();
+        foreach (var element in _profileChipElements)
+        {
+            if (element is Button { Tag: ProfileRow } btn)
+            {
+                list.Add(btn);
+            }
+        }
+
+        return list;
+    }
+
+    private void OnProfileChipsReordered(int fromIndex, int insertBeforeIndex)
+    {
+        var profileChips = GetProfileChipButtons()
+            .Cast<UIElement>()
+            .ToList();
+        var profileCount = profileChips.Count;
+        if (profileCount < 2
+            || fromIndex < 0
+            || fromIndex >= profileCount
+            || insertBeforeIndex < 0
+            || insertBeforeIndex > profileCount)
+        {
+            RebuildProfileChipElements(profileChips);
+            ForceChipHostRebuild(allowFitPresetResize: false);
+            return;
+        }
+
+        var to = insertBeforeIndex;
+        if (fromIndex < to)
+        {
+            to--;
+        }
+
+        if (fromIndex == to)
+        {
+            // No-op: same slot. Still reset the visual tree to be safe.
+            RebuildProfileChipElements(profileChips);
+            ForceChipHostRebuild(allowFitPresetResize: false);
+            return;
+        }
+
+        var item = profileChips[fromIndex];
+        profileChips.RemoveAt(fromIndex);
+        profileChips.Insert(to, item);
+        StartupTrace.Write($"Profile order: moved {fromIndex} insert-before {insertBeforeIndex} (to={to})");
+
+        RebuildProfileChipElements(profileChips);
+        ForceChipHostRebuild();
+        TryPersistProfileOrder();
+    }
+
+    /// <summary>
+    /// Force <see cref="_profileChipHost"/> to be torn down and rebuilt from
+    /// <see cref="_profileChipElements"/>. Used after reorder so the visual tree always
+    /// matches the model regardless of what state GumballGridLayout cached.
+    /// </summary>
+    private void ForceChipHostRebuild(bool allowFitPresetResize = true)
+    {
+        try
+        {
+            _profileChipHost.Children.Clear();
+        }
+        catch
+        {
+            // ignore
+        }
+
+        _gumballLayout.Reset();
+        ApplyGumballLayout(allowFitPresetResize);
+        _profileChipHost.InvalidateMeasure();
+        _profileChipHost.InvalidateArrange();
+    }
+
+    private void RebuildProfileChipElements(IReadOnlyList<UIElement> profileChips)
+    {
+        _profileChipElements.Clear();
+        foreach (var chip in profileChips)
+        {
+            _profileChipElements.Add(chip);
+        }
+
+        _profileChipElements.Add(_addChip);
+        EnsureAddChipLast();
+    }
+
+    private void TryPersistProfileOrder()
+    {
+        try
+        {
+            var paths = GetProfileChipButtons()
+                .Select(b => ((ProfileRow)b.Tag!).FilePath)
+                .ToList();
+            _settings.SaveProfileOrder(paths);
+            _settingsCache = _settings.Load();
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("PersistProfileOrder", ex);
+            StartupTrace.Write($"PersistProfileOrder failed: {ex.Message}");
+            SetErrorStatus("Profile order changed, but could not be saved.");
+        }
     }
 
     private async Task RunRestoreAsync(ProfileRow row)
