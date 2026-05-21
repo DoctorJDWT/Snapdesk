@@ -51,6 +51,9 @@ public sealed partial class MainWindow : Window
 
     /// <summary>Horizontal slack so auto-sized dock layouts do not clip rounded chips.</summary>
     private const int PresetWidthSlackPx = 4;
+
+    /// <summary>Extra slack for undocked square autosize (DPI rounding + circular chips).</summary>
+    private const int UndockedGumballSlackPx = 8;
     private const int DockHorizontalSlackDip = 4;
     private const int DockLongAxisSlackDip = 20;
     private const int DockCrossAxisSlackDip = 4;
@@ -782,9 +785,22 @@ public sealed partial class MainWindow : Window
         var dockEdgeChanged = _layoutDockEdge != edge;
         if (dockEdgeChanged)
         {
+            var becameUndocked = edge == WindowDockEdge.None;
+            if (!becameUndocked)
+            {
+                _undockedSizedForChipCount = -1;
+            }
+
             _layoutDockEdge = edge;
             _gumballLayout.Reset();
-            DispatcherQueue.TryEnqueue(() => ApplyGumballLayout(allowFitPresetResize: false));
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                ApplyGumballLayout(allowFitPresetResize: false);
+                if (becameUndocked)
+                {
+                    MaybeResizeUndockedFromGumball(force: true);
+                }
+            });
         }
 
         // Hide widget while rolled up; the overlay pill is the only affordance.
@@ -906,11 +922,22 @@ public sealed partial class MainWindow : Window
     private void ApplyGumballLayout(bool allowFitPresetResize = true)
     {
         EnsureAddChipLast();
-        var clientWidth = WidthForGumballColumnCount();
+        int clientWidth;
+        int clientHeight;
+        if (_layoutDockEdge == WindowDockEdge.None)
+        {
+            (clientWidth, clientHeight) = UndockedContentSizeForGumballLayout();
+        }
+        else
+        {
+            clientWidth = WidthForGumballColumnCount();
+            clientHeight = ClientHeightForChips();
+        }
+
         var result = _gumballLayout.Apply(
             _profileChipElements,
             clientWidth,
-            ClientHeightForChips(),
+            clientHeight,
             ChipsPerRowForLayout());
 
         var chipCount = _profileChipElements.Count;
@@ -1157,28 +1184,44 @@ public sealed partial class MainWindow : Window
         return (width, height);
     }
 
+    /// <summary>Scroll content size for undocked layout/centering (columns×rows grid, not window measure).</summary>
+    private (int Width, int Height) UndockedContentSizeForGumballLayout()
+    {
+        var chipCount = Math.Max(1, _profileChipElements.Count);
+        var (columns, rows) = ResolveUndockedSquareGrid(chipCount);
+        var chipUnit = ChipUnitPx();
+        var width = columns * chipUnit + PresetWidthSlackPx + UndockedGumballSlackPx;
+        var height = rows * chipUnit + MinChromeSlackPx + UndockedGumballSlackPx;
+        return (width, height);
+    }
+
     /// <summary>Square client size for an undocked gumball grid (profiles + add chip).</summary>
     private (int Width, int Height) ComputeUndockedSquareClientSize(int columns, int rows)
     {
-        var gumballSide = Math.Max(columns, rows) * ChipUnitPx();
-        var statusReserve = _statusText.Visibility == Visibility.Visible
-            ? (int)Math.Ceiling(_statusText.ActualHeight + 8)
+        var extent = Math.Max(columns, rows);
+        var chipUnit = ChipUnitPx();
+        var scale = RasterizationScale();
+        var statusReserveDip = _statusText.Visibility == Visibility.Visible
+            ? _statusText.ActualHeight + 8
             : 0;
-        var width = (int)Math.Ceiling(2 * RootGridPaddingSide + gumballSide + PresetWidthSlackPx);
-        var height = (int)Math.Ceiling(
-            RootGridPaddingTop
+        var gumballSideDip = extent * chipUnit;
+        var sideWidthDip = 2 * RootGridPaddingSide
+            + gumballSideDip
+            + PresetWidthSlackPx
+            + UndockedGumballSlackPx;
+        var sideHeightDip = RootGridPaddingTop
             + RootGridPaddingBottom
-            + gumballSide
+            + gumballSideDip
             + MinChromeSlackPx
-            + statusReserve);
-        var side = Math.Max(width, height);
-        side = Math.Max(side, GetMinClientWidth());
-        side = Math.Max(side, GetMinClientHeight());
-        return WindowGeometryHelper.ClampWidgetSize(
-            side,
-            side,
-            GetMinClientWidth(),
-            GetMinClientHeight());
+            + UndockedGumballSlackPx
+            + statusReserveDip;
+        var sideDip = Math.Max(sideWidthDip, sideHeightDip);
+        var sidePx = (int)Math.Ceiling(sideDip * scale);
+        var minW = (int)Math.Ceiling(GetMinClientWidth() * scale);
+        var minH = (int)Math.Ceiling(GetMinClientHeight() * scale);
+        sidePx = Math.Max(sidePx, minW);
+        sidePx = Math.Max(sidePx, minH);
+        return WindowGeometryHelper.ClampWidgetSize(sidePx, sidePx, minW, minH);
     }
 
     private static (int Columns, int Rows) ResolveUndockedSquareGrid(int chipCount)
@@ -1443,7 +1486,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void MaybeResizeUndockedFromGumball()
+    private void MaybeResizeUndockedFromGumball(bool force = false)
     {
         if (_layoutDockEdge != WindowDockEdge.None || !_geometryController.IsReadyForPersist)
         {
@@ -1456,13 +1499,19 @@ public sealed partial class MainWindow : Window
             var (columns, rows) = ResolveUndockedSquareGrid(chipCount);
             var (width, height) = ComputeUndockedSquareClientSize(columns, rows);
             var size = AppWindowRef.Size;
-            if (size.Width == width && size.Height == height)
+            if (!force
+                && chipCount == _undockedSizedForChipCount
+                && size.Width == width
+                && size.Height == height)
             {
-                _undockedSizedForChipCount = chipCount;
                 return;
             }
 
-            AppWindowRef.Resize(new SizeInt32(width, height));
+            if (size.Width != width || size.Height != height)
+            {
+                AppWindowRef.Resize(new SizeInt32(width, height));
+            }
+
             _undockedSizedForChipCount = chipCount;
             _gumballLayout.Reset();
             DispatcherQueue.TryEnqueue(() => ApplyGumballLayout(allowFitPresetResize: false));
@@ -1557,6 +1606,7 @@ public sealed partial class MainWindow : Window
 
         _profileChipElements.Add(_addChip);
 
+        _undockedSizedForChipCount = -1;
         _gumballLayout.Reset();
         ApplyGumballLayout();
         ApplyCurrentDockLayout();

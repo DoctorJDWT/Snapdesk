@@ -37,7 +37,7 @@ internal sealed class GumballGridLayout
         var hostWidth = columnCount * _chipUnit;
         var hostHeight = rows * _chipUnit;
 
-        if (IsCurrent(chips, chipsPerRow, hostWidth))
+        if (IsCurrent(chips, chipsPerRow, hostWidth, hostHeight))
         {
             return new GumballLayoutResult(
                 Changed: false,
@@ -78,8 +78,10 @@ internal sealed class GumballGridLayout
         _appliedChipsPerRow = chipsPerRow;
         _chipHost.Width = hostWidth;
         _chipHost.MaxWidth = hostWidth;
-        _chipHost.MinWidth = _chipUnit;
-        _chipHost.MinHeight = _chipUnit;
+        _chipHost.Height = hostHeight;
+        _chipHost.MaxHeight = hostHeight;
+        _chipHost.MinWidth = hostWidth;
+        _chipHost.MinHeight = hostHeight;
 
         _scrollViewer.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
         _scrollViewer.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
@@ -107,7 +109,7 @@ internal sealed class GumballGridLayout
             ClientWidth: clientWidth);
     }
 
-    private bool IsCurrent(IReadOnlyList<UIElement> chips, int chipsPerRow, int hostWidth)
+    private bool IsCurrent(IReadOnlyList<UIElement> chips, int chipsPerRow, int hostWidth, int hostHeight)
     {
         var count = chips.Count;
         return chipsPerRow == _appliedChipsPerRow
@@ -115,8 +117,10 @@ internal sealed class GumballGridLayout
             && PlacementMatches(chips, chipsPerRow)
             && Math.Abs(_chipHost.Width - hostWidth) < 0.5
             && Math.Abs(_chipHost.MaxWidth - hostWidth) < 0.5
-            && Math.Abs(_chipHost.MinWidth - _chipUnit) < 0.5
-            && Math.Abs(_chipHost.MinHeight - _chipUnit) < 0.5;
+            && Math.Abs(_chipHost.Height - hostHeight) < 0.5
+            && Math.Abs(_chipHost.MaxHeight - hostHeight) < 0.5
+            && Math.Abs(_chipHost.MinWidth - hostWidth) < 0.5
+            && Math.Abs(_chipHost.MinHeight - hostHeight) < 0.5;
     }
 
     private bool PlacementMatches(IReadOnlyList<UIElement> chips, int chipsPerRow)
