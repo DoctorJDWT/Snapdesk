@@ -1,0 +1,49 @@
+<Window
+    x:Class="LayoutProfiles.WinUI.UninstallConfirmWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid x:Name="RootGrid" Padding="24">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*" MinHeight="0" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <StackPanel Grid.Row="0" Spacing="12" VerticalAlignment="Top">
+      <TextBlock
+          x:Name="HeadingText"
+          FontSize="20"
+          FontWeight="SemiBold"
+          Text="Uninstall Snapdesk?" />
+
+      <TextBlock
+          x:Name="WarningText"
+          FontSize="14"
+          FontWeight="SemiBold"
+          TextWrapping="WrapWholeWords" />
+
+      <TextBlock
+          x:Name="DetailText"
+          FontSize="13"
+          TextWrapping="WrapWholeWords" />
+    </StackPanel>
+
+    <StackPanel
+        Grid.Row="1"
+        Orientation="Horizontal"
+        HorizontalAlignment="Right"
+        Spacing="8"
+        Margin="0,12,0,0">
+      <Button
+          x:Name="CancelButton"
+          MinWidth="88"
+          Content="Cancel"
+          IsTabStop="True"
+          Click="OnCancelClick" />
+      <Button
+          x:Name="PrimaryButton"
+          MinWidth="100"
+          IsTabStop="True"
+          Click="OnPrimaryClick" />
+    </StackPanel>
+  </Grid>
+</Window>

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using LayoutProfiles.WinUI.Services;
 using Microsoft.UI.Xaml;
 
@@ -7,24 +6,7 @@ namespace LayoutProfiles.WinUI.Helpers;
 
 internal static class UninstallSnapdesk
 {
-    private const uint MbYesNo = 0x00000004;
-    private const uint MbIconWarning = 0x00000030;
-    private const int IdYes = 6;
-
-    private const string ConfirmMessage =
-        "This removes Snapdesk, your profiles, and shortcuts. Continue?";
-
-    public static bool Confirm()
-    {
-        try
-        {
-            return MessageBoxW(IntPtr.Zero, ConfirmMessage, "Uninstall Snapdesk", MbYesNo | MbIconWarning) == IdYes;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    public static Task<bool> ConfirmAsync() => UninstallConfirmWindow.ShowConfirmAsync();
 
     public static void LaunchDetachedAndExit()
     {
@@ -83,7 +65,4 @@ internal static class UninstallSnapdesk
 
         return null;
     }
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, BestFitMapping = false)]
-    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 }

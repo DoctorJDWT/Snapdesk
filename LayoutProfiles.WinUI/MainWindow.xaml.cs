@@ -262,7 +262,11 @@ public sealed partial class MainWindow : Window
         settingsSub.Items.Add(_themeSystemItem);
         settingsSub.Items.Add(new MenuFlyoutSeparator());
 
-        var uninstallItem = new MenuFlyoutItem { Text = "Uninstall Snapdesk..." };
+        var uninstallItem = new MenuFlyoutItem
+        {
+            Text = "Uninstall Snapdesk...",
+            Foreground = AppTheme.Destructive,
+        };
         uninstallItem.Click += OnUninstallClick;
         settingsSub.Items.Add(uninstallItem);
 
@@ -438,9 +442,9 @@ public sealed partial class MainWindow : Window
         Close();
     }
 
-    private void OnUninstallClick(object sender, RoutedEventArgs e)
+    private async void OnUninstallClick(object sender, RoutedEventArgs e)
     {
-        if (!UninstallSnapdesk.Confirm())
+        if (!await UninstallSnapdesk.ConfirmAsync())
         {
             return;
         }

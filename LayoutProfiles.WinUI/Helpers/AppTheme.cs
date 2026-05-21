@@ -28,6 +28,11 @@ internal static class AppTheme
     public const string WidgetMuted = "WidgetMutedBrush";
     public const string WidgetAccent = "WidgetAccentBrush";
     public const string WidgetAddChipBackground = "WidgetAddChipBackgroundBrush";
+    public const string WidgetDestructive = "WidgetDestructiveBrush";
+
+    /// <summary>Error / destructive accent (#FFE06C75) — same in light and dark.</summary>
+    private static readonly SolidColorBrush DestructiveBrush =
+        new(ColorHelper.FromArgb(0xFF, 0xE0, 0x6C, 0x75));
 
     private static ThemePreference _preference = ThemePreference.System;
     private static WidgetPalette _palette;
@@ -39,6 +44,8 @@ internal static class AppTheme
     public static bool IsDark => ResolveDark();
 
     public static WidgetPalette Palette => _palette;
+
+    public static SolidColorBrush Destructive => DestructiveBrush;
 
     public static event Action? ResolvedThemeChanged;
 
@@ -179,5 +186,6 @@ internal static class AppTheme
         app.Resources[WidgetMuted] = palette.Muted;
         app.Resources[WidgetAccent] = palette.Accent;
         app.Resources[WidgetAddChipBackground] = palette.AddChipBackground;
+        app.Resources[WidgetDestructive] = DestructiveBrush;
     }
 }

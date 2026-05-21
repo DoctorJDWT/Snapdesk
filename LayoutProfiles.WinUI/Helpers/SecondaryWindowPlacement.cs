@@ -15,6 +15,7 @@ internal static class SecondaryWindowPlacement
     public const string ProfileEditor = "profile_editor";
     public const string ProfileDelete = "profile_delete";
     public const string ProfileActions = "profile_actions";
+    public const string UninstallConfirm = "uninstall_confirm";
 
     public static void Apply(Window window, string dialogId, int width, int height, bool resizable = false)
     {
