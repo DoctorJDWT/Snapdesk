@@ -141,7 +141,7 @@ public sealed partial class MainWindow : Window
         Title = TryDevTitleSuffix("Snapdesk");
 
         var transparent = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        var chromeBackground = (Brush)Application.Current.Resources[AppTheme.WidgetBackground];
+        var chromeBackground = AppTheme.Palette.Background;
         _chromeHost = new Grid
         {
             Background = chromeBackground,
@@ -195,7 +195,7 @@ public sealed partial class MainWindow : Window
         _statusText = new TextBlock
         {
             FontSize = 11,
-            Foreground = (Brush)Application.Current.Resources[AppTheme.WidgetMuted],
+            Foreground = AppTheme.Palette.Muted,
             TextTrimming = TextTrimming.CharacterEllipsis,
             TextWrapping = TextWrapping.NoWrap,
             Visibility = Visibility.Collapsed,

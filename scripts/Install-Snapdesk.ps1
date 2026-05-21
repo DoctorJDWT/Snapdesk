@@ -277,11 +277,22 @@ Try running scripts\publish_snapdesk.ps1 again, then Install Snapdesk.cmd.
     exit 1
 }
 
-$desktopLnk = Join-Path $env:USERPROFILE "Desktop\Snapdesk.lnk"
+$desktopDir = [Environment]::GetFolderPath('Desktop')
+if ([string]::IsNullOrWhiteSpace($desktopDir)) {
+    $desktopDir = Join-Path $env:USERPROFILE "Desktop"
+}
+$desktopLnk = Join-Path $desktopDir "Snapdesk.lnk"
+$launcherVbs = Join-Path $installDir "launch_snapdesk.vbs"
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($desktopLnk)
-$shortcut.TargetPath = $exePath
-$shortcut.WorkingDirectory = $installDir
+if (Test-Path -LiteralPath $launcherVbs) {
+    $shortcut.TargetPath = $launcherVbs
+    $shortcut.WorkingDirectory = $installDir
+}
+else {
+    $shortcut.TargetPath = $exePath
+    $shortcut.WorkingDirectory = $installDir
+}
 $shortcut.Description = 'Snapdesk - saved window layouts.'
 if (Test-Path -LiteralPath $iconPath) {
     $shortcut.IconLocation = "$iconPath,0"
