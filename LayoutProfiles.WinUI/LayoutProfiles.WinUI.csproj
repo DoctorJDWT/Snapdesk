@@ -7,7 +7,7 @@
     <AssemblyName>Snapdesk</AssemblyName>
     <Product>Snapdesk</Product>
     <AssemblyTitle>Snapdesk</AssemblyTitle>
-    <Version>1.0.17</Version>
+    <Version>1.0.18</Version>
     <UseAppHost>true</UseAppHost>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
