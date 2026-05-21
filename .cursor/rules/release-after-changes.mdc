@@ -1,0 +1,20 @@
+---
+description: After Snapdesk user-facing changes, cut a GitHub release with the setup zip
+alwaysApply: true
+---
+
+# Release after changes
+
+When you finish **user-facing** changes in this repo (WinUI app, `src/layout_manager.py`, installer scripts, or anything in published `dist\Snapdesk`), and the work is committed or the user asks to push:
+
+1. **Bump patch version** — check `gh release list --limit 1` for the latest `v1.0.x`, then tag the next patch (e.g. `v1.0.6`).
+2. **Build the installer zip:**
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Build-Installer.ps1`
+3. **Tag and publish:**
+   - `git tag -a vX.Y.Z -m "Snapdesk X.Y.Z"`
+   - `git push origin main` (if not already pushed)
+   - `git push origin vX.Y.Z`
+   - `gh release create vX.Y.Z dist\Snapdesk-Setup.zip --title "Snapdesk X.Y.Z" --notes-file <notes> --latest`
+4. **Release notes** — short bullets for everything since the previous tag (not only the last commit).
+
+Do not skip the release unless the user explicitly asked for a plan-only task, docs-only change with no distributable impact, or said not to release.
