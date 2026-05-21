@@ -26,6 +26,20 @@ public sealed partial class ProfileEditorWindow : Window
     private const double MaxWorkAreaHeightFraction = 0.92;
     private const int WorkAreaInset = 24;
 
+    private Grid _rootGrid = null!;
+    private TextBlock _headingText = null!;
+    private TextBlock _nameLabelText = null!;
+    private TextBox _nameBox = null!;
+    private TextBlock _applicationsLabelText = null!;
+    private TextBlock _windowsHintText = null!;
+    private ScrollViewer _windowListScroll = null!;
+    private StackPanel _windowListPanel = null!;
+    private TextBlock _emptyWindowsText = null!;
+    private TextBlock _errorText = null!;
+    private Button _cancelButton = null!;
+    private Button _refreshButton = null!;
+    private Button _saveButton = null!;
+
     private readonly TaskCompletionSource<ProfileEditorResult?> _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ProfileEditorMode _mode;
     private readonly string? _profilePath;
@@ -38,31 +52,45 @@ public sealed partial class ProfileEditorWindow : Window
 
     private ProfileEditorWindow(ProfileEditorMode mode, string initialName, string? profilePath)
     {
-        InitializeComponent();
+        CrashLog.WriteDiagnostic("ProfileEditorWindow.ctor", $"begin mode={mode}");
+        try
+        {
+            // UI is built in code (no InitializeComponent) — published secondary windows fail XAML parse.
+            BuildUi();
+            CrashLog.WriteDiagnostic("ProfileEditorWindow.ctor", "BuildUi completed");
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("ProfileEditorWindow.BuildUi", ex);
+            throw;
+        }
+
         Title = "Snapdesk";
         _mode = mode;
         _profilePath = profilePath;
 
-        HeadingText.Text = mode == ProfileEditorMode.Create ? "New layout" : "Edit layout";
-        NameBox.PlaceholderText = mode == ProfileEditorMode.Create ? "e.g. League" : "Profile name";
-        NameBox.Text = initialName;
-        WindowsHintText.Text = mode == ProfileEditorMode.Create
+        _headingText.Text = mode == ProfileEditorMode.Create ? "New layout" : "Edit layout";
+        _nameBox.PlaceholderText = mode == ProfileEditorMode.Create ? "e.g. League" : "Profile name";
+        _nameBox.Text = initialName;
+        _windowsHintText.Text = mode == ProfileEditorMode.Create
             ? "Select windows to include in this layout."
             : "Add or remove windows. Checked items are saved in the profile.";
 
-        NameBox.TextChanged += (_, _) => ErrorText.Visibility = Visibility.Collapsed;
-        RootGrid.Loaded += OnRootGridLoaded;
+        _nameBox.TextChanged += (_, _) => _errorText.Visibility = Visibility.Collapsed;
+        _rootGrid.Loaded += OnRootGridLoaded;
         Closed += OnClosed;
-        RootGrid.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), handledEventsToo: true);
+        _rootGrid.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), handledEventsToo: true);
         SecondaryWindowTracker.Register(this);
         AppTheme.ResolvedThemeChanged += OnResolvedThemeChanged;
         ApplyThemeFromApp();
 
         ConfigureWindowChrome(MinWindowHeight);
+        CrashLog.WriteDiagnostic("ProfileEditorWindow.ctor", "end");
     }
 
     public static Task<ProfileEditorResult?> ShowCreateAsync()
     {
+        CrashLog.WriteDiagnostic("ProfileEditorWindow.ShowCreateAsync", "creating window");
         var window = new ProfileEditorWindow(ProfileEditorMode.Create, string.Empty, profilePath: null);
         WindowChromeHelper.PresentModal(window, App.MainWindowInstance);
         return window._tcs.Task;
@@ -70,9 +98,156 @@ public sealed partial class ProfileEditorWindow : Window
 
     public static Task<ProfileEditorResult?> ShowEditAsync(ProfileRow row)
     {
+        CrashLog.WriteDiagnostic("ProfileEditorWindow.ShowEditAsync", $"profile={row.DisplayName}");
         var window = new ProfileEditorWindow(ProfileEditorMode.Edit, row.DisplayName, row.FilePath);
         WindowChromeHelper.PresentModal(window, App.MainWindowInstance);
         return window._tcs.Task;
+    }
+
+    private void BuildUi()
+    {
+        _rootGrid = new Grid { Padding = new Thickness(16) };
+        for (var i = 0; i < 7; i++)
+        {
+            var row = new RowDefinition
+            {
+                Height = i == 3 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto,
+            };
+            if (i == 3)
+            {
+                row.MinHeight = 0;
+            }
+
+            _rootGrid.RowDefinitions.Add(row);
+        }
+
+        _headingText = new TextBlock
+        {
+            Margin = new Thickness(0, 0, 0, 14),
+            FontSize = 20,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        };
+        Grid.SetRow(_headingText, 0);
+
+        _nameLabelText = new TextBlock
+        {
+            Text = "Profile name",
+            FontSize = 13,
+            Opacity = 0.75,
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+        _nameBox = new TextBox { MaxLength = 120 };
+        var namePanel = new StackPanel();
+        namePanel.Children.Add(_nameLabelText);
+        namePanel.Children.Add(_nameBox);
+        Grid.SetRow(namePanel, 1);
+
+        _applicationsLabelText = new TextBlock
+        {
+            Text = "Applications",
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Opacity = 0.85,
+        };
+        _windowsHintText = new TextBlock
+        {
+            FontSize = 12,
+            Opacity = 0.75,
+            TextWrapping = TextWrapping.WrapWholeWords,
+            Text = "Select windows to include in this layout.",
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+        var appsPanel = new StackPanel { Margin = new Thickness(0, 18, 0, 8) };
+        appsPanel.Children.Add(_applicationsLabelText);
+        appsPanel.Children.Add(_windowsHintText);
+        Grid.SetRow(appsPanel, 2);
+
+        _windowListPanel = new StackPanel();
+        _windowListScroll = new ScrollViewer
+        {
+            MinHeight = MinListViewportHeight,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = _windowListPanel,
+        };
+        Grid.SetRow(_windowListScroll, 3);
+
+        _emptyWindowsText = new TextBlock
+        {
+            FontSize = 12,
+            Margin = new Thickness(0, 8, 0, 0),
+            Text = "No pickable windows found. Open the apps you want, then click Refresh.",
+            TextWrapping = TextWrapping.WrapWholeWords,
+            Visibility = Visibility.Collapsed,
+        };
+        Grid.SetRow(_emptyWindowsText, 4);
+
+        _errorText = new TextBlock
+        {
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xE0, 0x6C, 0x75)),
+            Margin = new Thickness(0, 8, 0, 0),
+            TextWrapping = TextWrapping.WrapWholeWords,
+            Visibility = Visibility.Collapsed,
+        };
+        Grid.SetRow(_errorText, 5);
+
+        _cancelButton = new Button { Content = "Cancel" };
+        _cancelButton.Click += OnCancelClick;
+        _refreshButton = new Button { Content = "Refresh" };
+        _refreshButton.Click += OnRefreshClick;
+        _saveButton = new Button { Content = "Save" };
+        _saveButton.Click += OnSaveClick;
+
+        var buttonPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 12, 0, 0),
+            Spacing = 8,
+        };
+        buttonPanel.Children.Add(_cancelButton);
+        buttonPanel.Children.Add(_refreshButton);
+        buttonPanel.Children.Add(_saveButton);
+        Grid.SetRow(buttonPanel, 6);
+
+        _rootGrid.Children.Add(_headingText);
+        _rootGrid.Children.Add(namePanel);
+        _rootGrid.Children.Add(appsPanel);
+        _rootGrid.Children.Add(_windowListScroll);
+        _rootGrid.Children.Add(_emptyWindowsText);
+        _rootGrid.Children.Add(_errorText);
+        _rootGrid.Children.Add(buttonPanel);
+
+        Content = _rootGrid;
+    }
+
+    private void RebuildWindowListUi()
+    {
+        _windowListPanel.Children.Clear();
+        foreach (var item in _pickerItems)
+        {
+            var text = new TextBlock
+            {
+                Text = item.DisplayText,
+                TextWrapping = TextWrapping.WrapWholeWords,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 2,
+            };
+            var checkBox = new CheckBox
+            {
+                MinHeight = 36,
+                Padding = new Thickness(2, 4, 2, 4),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Content = text,
+                IsChecked = item.IsChecked,
+                Tag = item,
+            };
+            checkBox.Checked += (_, _) => item.IsChecked = true;
+            checkBox.Unchecked += (_, _) => item.IsChecked = false;
+            _windowListPanel.Children.Add(checkBox);
+        }
     }
 
     private void OnResolvedThemeChanged() =>
@@ -83,16 +258,16 @@ public sealed partial class ProfileEditorWindow : Window
         var palette = AppTheme.Palette;
         var elementTheme = AppTheme.IsDark ? ElementTheme.Dark : ElementTheme.Light;
 
-        RootGrid.Background = palette.Background;
-        RootGrid.RequestedTheme = elementTheme;
+        _rootGrid.Background = palette.Background;
+        _rootGrid.RequestedTheme = elementTheme;
 
-        HeadingText.Foreground = palette.Primary;
-        NameLabelText.Foreground = palette.Muted;
-        ApplicationsLabelText.Foreground = palette.Primary;
-        WindowsHintText.Foreground = palette.Muted;
-        EmptyWindowsText.Foreground = palette.Muted;
-        SaveButton.Background = palette.Accent;
-        SaveButton.Foreground = palette.Primary;
+        _headingText.Foreground = palette.Primary;
+        _nameLabelText.Foreground = palette.Muted;
+        _applicationsLabelText.Foreground = palette.Primary;
+        _windowsHintText.Foreground = palette.Muted;
+        _emptyWindowsText.Foreground = palette.Muted;
+        _saveButton.Background = palette.Accent;
+        _saveButton.Foreground = palette.Primary;
 
         try
         {
@@ -141,8 +316,8 @@ public sealed partial class ProfileEditorWindow : Window
         }
         catch (Exception ex)
         {
-            ErrorText.Text = $"Could not list windows: {ex.Message}";
-            ErrorText.Visibility = Visibility.Visible;
+            _errorText.Text = $"Could not list windows: {ex.Message}";
+            _errorText.Visibility = Visibility.Visible;
         }
     }
 
@@ -150,8 +325,8 @@ public sealed partial class ProfileEditorWindow : Window
 
     private async Task LoadWindowListAsync()
     {
-        RefreshButton.IsEnabled = false;
-        ErrorText.Visibility = Visibility.Collapsed;
+        _refreshButton.IsEnabled = false;
+        _errorText.Visibility = Visibility.Collapsed;
 
         try
         {
@@ -182,20 +357,19 @@ public sealed partial class ProfileEditorWindow : Window
                 _pickerItems.Add(new WindowPickerItem(w, checkedKeys.Contains(w.Key)));
             }
 
-            WindowList.ItemsSource = null;
-            WindowList.ItemsSource = _pickerItems;
-            EmptyWindowsText.Visibility = _pickerItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            RebuildWindowListUi();
+            _emptyWindowsText.Visibility = _pickerItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             ResizeToFitApplicationList();
-            WindowListScroll.ChangeView(null, 0, null, disableAnimation: true);
+            _windowListScroll.ChangeView(null, 0, null, disableAnimation: true);
         }
         catch (Exception ex)
         {
-            ErrorText.Text = $"Could not list windows: {ex.Message}";
-            ErrorText.Visibility = Visibility.Visible;
+            _errorText.Text = $"Could not list windows: {ex.Message}";
+            _errorText.Visibility = Visibility.Visible;
         }
         finally
         {
-            RefreshButton.IsEnabled = true;
+            _refreshButton.IsEnabled = true;
         }
     }
 
@@ -218,15 +392,14 @@ public sealed partial class ProfileEditorWindow : Window
                 MinWindowHeight,
                 Math.Min(workHeight - WorkAreaInset, (int)(workHeight * MaxWorkAreaHeightFraction)));
             var maxListHeight = Math.Max(MinListViewportHeight, maxWindowHeight - FixedEditorHeight);
-            // Fill the list area up to the monitor cap so more apps are visible; scroll when content is taller.
             var listViewportHeight = itemCount == 0
                 ? MinListViewportHeight
                 : maxListHeight;
             var height = Math.Max(MinWindowHeight, FixedEditorHeight + listViewportHeight);
 
-            WindowListScroll.VerticalScrollBarVisibility = itemCount > 0 && contentListHeight > maxListHeight
-                ? Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Visible
-                : Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Auto;
+            _windowListScroll.VerticalScrollBarVisibility = itemCount > 0 && contentListHeight > maxListHeight
+                ? ScrollBarVisibility.Visible
+                : ScrollBarVisibility.Auto;
 
             var (width, clampedHeight, x, y) = WindowGeometryHelper.ClampToVirtualScreen(
                 WindowWidth,
@@ -247,22 +420,22 @@ public sealed partial class ProfileEditorWindow : Window
 
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(NameBox.Text))
+        if (string.IsNullOrWhiteSpace(_nameBox.Text))
         {
-            ErrorText.Text = "Enter a profile name.";
-            ErrorText.Visibility = Visibility.Visible;
+            _errorText.Text = "Enter a profile name.";
+            _errorText.Visibility = Visibility.Visible;
             return;
         }
 
         var selected = _pickerItems.Where(i => i.IsChecked).Select(i => i.Window).ToList();
         if (selected.Count == 0)
         {
-            ErrorText.Text = "Select at least one window.";
-            ErrorText.Visibility = Visibility.Visible;
+            _errorText.Text = "Select at least one window.";
+            _errorText.Visibility = Visibility.Visible;
             return;
         }
 
-        Complete(new ProfileEditorResult(NameBox.Text.Trim(), selected));
+        Complete(new ProfileEditorResult(_nameBox.Text.Trim(), selected));
     }
 
     private void OnCancelClick(object sender, RoutedEventArgs e) => Complete(null);
@@ -281,10 +454,10 @@ public sealed partial class ProfileEditorWindow : Window
             return;
         }
 
-        if (SaveButton.IsEnabled)
+        if (_saveButton.IsEnabled)
         {
             e.Handled = true;
-            OnSaveClick(SaveButton, new RoutedEventArgs());
+            OnSaveClick(_saveButton, new RoutedEventArgs());
         }
     }
 
