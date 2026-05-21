@@ -136,7 +136,7 @@ public sealed class UpdateInstallService
     {
         var arguments =
             $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\" " +
-            $"-NoPrompt -InstallDir \"{installDir}\" -WaitProcessId {waitPid} -LaunchAfterInstall";
+            $"-NoPrompt -InstallDir \"{installDir}\" -ProcessId {waitPid} -LaunchAfterInstall";
 
         _ = Process.Start(new ProcessStartInfo
         {

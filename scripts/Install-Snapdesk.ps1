@@ -8,8 +8,8 @@ param(
     [switch] $NoPrompt,
     [switch] $LaunchAfterInstall,
     [switch] $NoLaunch,
-    [Alias('WaitPid')]
-    [int] $WaitProcessId = 0
+    [Alias('WaitPid', 'WaitProcessId')]
+    [int] $ProcessId = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -464,7 +464,12 @@ function Test-IsComClassNotRegistered([System.Exception] $Exception) {
     return $msg -match '80040154|Class not registered|REGDB_E_CLASSNOTREG'
 }
 
-function Show-InstallFolderPickerWinForms([string] $Title, [string] $InitialPath) {
+function Show-IFileOpenFolderPicker([string] $Title, [string] $InitialPath) {
+    Ensure-InstallFolderPickerType
+    return [Snapdesk.InstallFolderPicker]::Show($Title, $InitialPath)
+}
+
+function Show-LegacyFolderBrowserPicker([string] $Title, [string] $InitialPath) {
     $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
     $dialog.Description = $Title
     $dialog.UseDescriptionForTitle = $true
@@ -478,10 +483,10 @@ function Show-InstallFolderPickerWinForms([string] $Title, [string] $InitialPath
     return $null
 }
 
-function Invoke-InstallFolderPickerOnSta([scriptblock] $Picker) {
+function Invoke-InstallFolderPickerOnSta([scriptblock] $StaAction) {
     $current = [System.Threading.Thread]::CurrentThread.GetApartmentState()
     if ($current -eq [System.Threading.ApartmentState]::STA) {
-        return & $Picker
+        return & $StaAction
     }
 
     $state = @{
@@ -498,7 +503,7 @@ function Invoke-InstallFolderPickerOnSta([scriptblock] $Picker) {
         }
     })
     $thread.SetApartmentState([System.Threading.ApartmentState]::STA)
-    $thread.Start($state, $Picker)
+    $thread.Start($state, $StaAction)
     $thread.Join()
     if ($state.Error) {
         throw $state.Error
@@ -507,20 +512,17 @@ function Invoke-InstallFolderPickerOnSta([scriptblock] $Picker) {
 }
 
 function Show-InstallFolderPicker([string] $Title, [string] $InitialPath) {
-    $picker = {
-        param($dialogTitle, $dialogInitial)
+    return Invoke-InstallFolderPickerOnSta {
         try {
-            Ensure-InstallFolderPickerType
-            return [Snapdesk.InstallFolderPicker]::Show($dialogTitle, $dialogInitial)
+            return Show-IFileOpenFolderPicker $Title $InitialPath
         }
         catch {
             if (-not (Test-IsComClassNotRegistered $_.Exception)) {
                 Write-Verbose "IFileOpenDialog folder picker failed; using WinForms fallback: $($_.Exception.Message)"
             }
-            return Show-InstallFolderPickerWinForms $dialogTitle $dialogInitial
+            return Show-LegacyFolderBrowserPicker $Title $InitialPath
         }
     }
-    return Invoke-InstallFolderPickerOnSta { & $picker $Title $InitialPath }
 }
 
 function Select-InstallDirectory([string] $SuggestedPath) {
@@ -578,7 +580,7 @@ else {
     $installDir = $picked
 }
 
-Wait-ProcessExit -ProcessId $WaitProcessId
+Wait-ProcessExit -ProcessId $ProcessId
 
 Write-Step "Snapdesk installer"
 Write-Step "Install location: $installDir"
