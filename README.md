@@ -19,7 +19,7 @@ Requires **Windows 10/11 (x64)**.
 3. Approve any **winget** prompts if Windows asks (Python 3.12, optional Windows App Runtime).
 4. Use the **Snapdesk** desktop shortcut.
 
-**Install location:** `%LOCALAPPDATA%\Programs\Snapdesk\`
+**Install location:** you choose a folder during setup (default `%LOCALAPPDATA%\Programs\Snapdesk\`). Re-runs default to your existing install if the desktop shortcut is present.
 
 From a git checkout with a prior publish, you can also double-click **`Install Snapdesk.cmd`** at the repo root (uses `dist\Snapdesk\` when present).
 
@@ -27,6 +27,12 @@ Optional startup entry when installing from PowerShell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Install-Snapdesk.ps1 -AddToStartup
+```
+
+Install to a specific folder without prompts:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Install-Snapdesk.ps1 -InstallDir "D:\Apps\Snapdesk" -NoPrompt
 ```
 
 Profiles and settings live under `%LOCALAPPDATA%\LayoutProfiles\` (not in the install folder).

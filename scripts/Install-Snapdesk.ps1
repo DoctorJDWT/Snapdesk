@@ -3,7 +3,9 @@
 # Or double-click: Install Snapdesk.cmd
 
 param(
-    [switch] $AddToStartup
+    [string] $InstallDir,
+    [switch] $AddToStartup,
+    [switch] $NoPrompt
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,7 +19,7 @@ function Show-Message {
         [System.Windows.Forms.MessageBoxButtons] $Buttons = [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon] $Icon = [System.Windows.Forms.MessageBoxIcon]::Information
     )
-    [void][System.Windows.Forms.MessageBox]::Show($Text, $Caption, $Buttons, $Icon)
+    return [System.Windows.Forms.MessageBox]::Show($Text, $Caption, $Buttons, $Icon)
 }
 
 function Write-Step([string] $Message) {
@@ -105,6 +107,80 @@ function Find-SnapdeskExecutable([string] $Dir) {
     return $null
 }
 
+function Get-DefaultInstallDir {
+    Join-Path $env:LOCALAPPDATA "Programs\Snapdesk"
+}
+
+function Test-SnapdeskInstallDir([string] $Dir) {
+    if ([string]::IsNullOrWhiteSpace($Dir) -or -not (Test-Path -LiteralPath $Dir)) {
+        return $false
+    }
+    $hasPayload = (Test-Path -LiteralPath (Join-Path $Dir "invoke_python.ps1")) -and
+        (Test-Path -LiteralPath (Join-Path $Dir "src\layout_manager.py"))
+    $hasExe = $null -ne (Find-SnapdeskExecutable $Dir)
+    return $hasPayload -or $hasExe
+}
+
+function Get-InstalledSnapdeskDir {
+    $desktopDir = [Environment]::GetFolderPath('Desktop')
+    if ([string]::IsNullOrWhiteSpace($desktopDir)) {
+        $desktopDir = Join-Path $env:USERPROFILE "Desktop"
+    }
+    $desktopLnk = Join-Path $desktopDir "Snapdesk.lnk"
+    if (-not (Test-Path -LiteralPath $desktopLnk)) {
+        return $null
+    }
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($desktopLnk)
+        $dir = $shortcut.WorkingDirectory
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shortcut) | Out-Null
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null
+        if (Test-SnapdeskInstallDir $dir) {
+            return $dir
+        }
+    }
+    catch {
+        return $null
+    }
+    return $null
+}
+
+function Resolve-InstallDirectory([string] $SelectedPath) {
+    $path = [System.IO.Path]::GetFullPath($SelectedPath.Trim())
+    if (Test-SnapdeskInstallDir $path) {
+        return $path
+    }
+    if ([string]::Equals(
+            [System.IO.Path]::GetFileName($path.TrimEnd('\', '/')),
+            "Snapdesk",
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $path
+    }
+    return Join-Path $path "Snapdesk"
+}
+
+function Select-InstallDirectory([string] $SuggestedPath) {
+    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dialog.Description = "Choose where to install Snapdesk. A Snapdesk folder is created inside the folder you pick unless you select an existing Snapdesk install folder."
+    $dialog.ShowNewFolderButton = $true
+    $parent = Split-Path $SuggestedPath -Parent
+    if ($parent -and (Test-Path -LiteralPath $parent)) {
+        $dialog.SelectedPath = $parent
+    }
+    elseif (Test-Path -LiteralPath $SuggestedPath) {
+        $dialog.SelectedPath = $SuggestedPath
+    }
+    else {
+        $dialog.SelectedPath = $env:USERPROFILE
+    }
+    $result = $dialog.ShowDialog()
+    if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
+        return $null
+    }
+    return Resolve-InstallDirectory $dialog.SelectedPath
+}
+
 function Test-SelfContainedPublish([string] $Dir) {
     $rt = Join-Path $Dir "Snapdesk.runtimeconfig.json"
     if (-not (Test-Path -LiteralPath $rt)) {
@@ -122,11 +198,39 @@ function Test-SelfContainedPublish([string] $Dir) {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $distDir = Join-Path $repoRoot "dist\Snapdesk"
-$installDir = Join-Path $env:LOCALAPPDATA "Programs\Snapdesk"
+$defaultInstallDir = Get-DefaultInstallDir
+$existingInstallDir = Get-InstalledSnapdeskDir
+
+if (-not [string]::IsNullOrWhiteSpace($InstallDir)) {
+    $installDir = Resolve-InstallDirectory $InstallDir
+}
+elseif ($NoPrompt) {
+    $installDir = if ($existingInstallDir) { $existingInstallDir } else { $defaultInstallDir }
+}
+else {
+    $suggested = if ($existingInstallDir) { $existingInstallDir } else { $defaultInstallDir }
+    $picked = Select-InstallDirectory $suggested
+    if (-not $picked) {
+        Show-Message "Installation cancelled." "Snapdesk Setup" ([System.Windows.Forms.MessageBoxButtons]::OK) ([System.Windows.Forms.MessageBoxIcon]::Information)
+        exit 0
+    }
+    $installDir = $picked
+}
 
 Write-Step "Snapdesk installer"
 Write-Step "Install location: $installDir"
-Show-Message "Snapdesk will be installed to:`n`n$installDir`n`nClick OK to continue." "Snapdesk Setup"
+if (-not $NoPrompt -and [string]::IsNullOrWhiteSpace($InstallDir)) {
+    $confirm = Show-Message "Install Snapdesk to:`n`n$installDir`n`nClick Yes to continue or No to pick a different folder." "Snapdesk Setup" ([System.Windows.Forms.MessageBoxButtons]::YesNo) ([System.Windows.Forms.MessageBoxIcon]::Question)
+    if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) {
+        $picked = Select-InstallDirectory $installDir
+        if (-not $picked) {
+            Show-Message "Installation cancelled." "Snapdesk Setup"
+            exit 0
+        }
+        $installDir = $picked
+        Write-Step "Install location: $installDir"
+    }
+}
 
 # --- Dependencies ---
 $wingetWarnings = New-Object System.Collections.Generic.List[string]
