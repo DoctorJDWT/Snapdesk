@@ -271,10 +271,136 @@ function Ensure-FolderDialogPath([string] $Path) {
     return $full
 }
 
+function Ensure-InstallFolderPickerType {
+    if (([System.Management.Automation.PSTypeName]'Snapdesk.InstallFolderPicker').Type) {
+        return
+    }
+    Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace Snapdesk
+{
+    [ComImport]
+    [Guid("DC1C5A9C-E88A-4CDE-A161-0443A2F0C3EC")]
+    internal class FileOpenDialog
+    {
+    }
+
+    [Flags]
+    internal enum FOS : uint
+    {
+        PickFolders = 0x20,
+        ForceFileSystem = 0x40,
+        PathMustExist = 0x800
+    }
+
+    internal enum SIGDN : uint
+    {
+        FileSystemPath = 0x80058000
+    }
+
+    [ComImport]
+    [Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IShellItem
+    {
+        void BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+        void GetParent(out IShellItem ppsi);
+        [PreserveSig]
+        int GetDisplayName(SIGDN sigdnName, out IntPtr ppszName);
+        void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+        void Compare(IShellItem psi, uint hint, out int piOrder);
+    }
+
+    [ComImport]
+    [Guid("d57ffd71-a236-11d0-8c0f-00a02400c00b")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IFileOpenDialog
+    {
+        [PreserveSig]
+        int Show(IntPtr hwndOwner);
+        void SetFileTypes();
+        void SetFileTypeIndex(uint iFileType);
+        void GetFileTypeIndex(out uint piFileType);
+        void Advise();
+        void Unadvise();
+        void SetOptions(FOS fos);
+        FOS GetOptions();
+        void SetDefaultFolder(IShellItem psi);
+        void SetFolder(IShellItem psi);
+        void GetFolder(out IShellItem ppsi);
+        void GetCurrentSelection(out IShellItem ppsi);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string pszText);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string pszLabel);
+        void GetResult(out IShellItem ppsi);
+        void AddPlace(IShellItem psi, int fdap);
+        void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string pszDefaultExtension);
+        void Close(int hr);
+        void SetClientGuid(ref Guid guid);
+        void ClearClientData();
+        void SetFilter();
+        void GetResults();
+        void GetSelectedItems();
+    }
+
+    public static class InstallFolderPicker
+    {
+        private static readonly Guid ShellItemGuid = new Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE");
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+        private static extern void SHCreateItemFromParsingName(
+            [MarshalAs(UnmanagedType.LPWStr)] string pszPath,
+            IntPtr pbc,
+            ref Guid riid,
+            [MarshalAs(UnmanagedType.Interface)] out IShellItem ppv);
+
+        public static string Show(string title, string initialFolder)
+        {
+            IFileOpenDialog dialog = (IFileOpenDialog)new FileOpenDialog();
+            dialog.SetOptions(FOS.PickFolders | FOS.ForceFileSystem | FOS.PathMustExist);
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                dialog.SetTitle(title);
+            }
+
+            if (!string.IsNullOrWhiteSpace(initialFolder))
+            {
+                Guid riid = ShellItemGuid;
+                IShellItem item;
+                SHCreateItemFromParsingName(initialFolder, IntPtr.Zero, ref riid, out item);
+                dialog.SetFolder(item);
+                dialog.SetDefaultFolder(item);
+            }
+
+            if (dialog.Show(IntPtr.Zero) != 0)
+            {
+                return null;
+            }
+
+            IShellItem result;
+            dialog.GetResult(out result);
+            IntPtr pszPath;
+            result.GetDisplayName(SIGDN.FileSystemPath, out pszPath);
+            try
+            {
+                return Marshal.PtrToStringUni(pszPath);
+            }
+            finally
+            {
+                Marshal.FreeCoTaskMem(pszPath);
+            }
+        }
+    }
+}
+'@
+}
+
 function Select-InstallDirectory([string] $SuggestedPath) {
-    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-    $dialog.Description = "Choose where to install Snapdesk. A Snapdesk folder is created inside the folder you pick unless you select an existing Snapdesk install folder."
-    $dialog.ShowNewFolderButton = $true
+    Ensure-InstallFolderPickerType
+    $title = "Choose where to install Snapdesk. A Snapdesk folder is created inside the folder you pick unless you select an existing Snapdesk install folder."
     $initialPath = if ([string]::IsNullOrWhiteSpace($SuggestedPath)) {
         Get-DefaultInstallDir
     }
@@ -282,17 +408,14 @@ function Select-InstallDirectory([string] $SuggestedPath) {
         Resolve-InstallDirectory $SuggestedPath
     }
     $initialPath = Ensure-FolderDialogPath $initialPath
-    if ($initialPath) {
-        $dialog.SelectedPath = $initialPath
+    if (-not $initialPath) {
+        $initialPath = $env:USERPROFILE
     }
-    else {
-        $dialog.SelectedPath = $env:USERPROFILE
-    }
-    $result = $dialog.ShowDialog()
-    if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
+    $picked = [Snapdesk.InstallFolderPicker]::Show($title, $initialPath)
+    if ([string]::IsNullOrWhiteSpace($picked)) {
         return $null
     }
-    return Resolve-InstallDirectory $dialog.SelectedPath
+    return Resolve-InstallDirectory $picked
 }
 
 function Test-SelfContainedPublish([string] $Dir) {
