@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using System.Runtime.InteropServices;
 using Windows.Graphics;
 using Windows.UI;
 using WinRT.Interop;
@@ -225,8 +226,9 @@ public sealed partial class MainWindow : Window
         {
             FontSize = 11,
             Foreground = AppTheme.Palette.Muted,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.None,
+            TextWrapping = TextWrapping.WrapWholeWords,
+            MaxLines = 4,
             Visibility = Visibility.Collapsed,
             Margin = new Thickness(0, 8, 0, 0),
         };
@@ -1505,7 +1507,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             CrashLog.Write("RunCreateProfileAsync", ex);
-            SetErrorStatus($"Could not open layout editor: {ex.Message}");
+            ReportDialogOpenFailure("layout editor", ex);
             SetBusy(false);
             return;
         }
@@ -1568,7 +1570,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             CrashLog.Write("ConfirmAndDeleteProfileAsync", ex);
-            SetErrorStatus($"Could not open delete dialog: {ex.Message}");
+            ReportDialogOpenFailure("delete dialog", ex);
             return;
         }
         finally
@@ -1601,7 +1603,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             CrashLog.Write("RunEditAsync", ex);
-            SetErrorStatus($"Could not open layout editor: {ex.Message}");
+            ReportDialogOpenFailure("layout editor", ex);
             SetBusy(false);
             return;
         }
@@ -1726,10 +1728,36 @@ public sealed partial class MainWindow : Window
     private void SetErrorStatus(string text)
     {
         _statusText.Text = text;
+        ToolTipService.SetToolTip(_statusText, text);
         _statusText.Visibility = Visibility.Visible;
         ApplyMinimumWindowSize();
         ApplyCurrentDockLayout();
     }
+
+    private void ReportDialogOpenFailure(string dialogName, Exception ex)
+    {
+        var message = $"Could not open {dialogName}: {ex.Message}";
+        SetErrorStatus(message);
+        ShowErrorMessageBox("Snapdesk", message);
+    }
+
+    private static void ShowErrorMessageBox(string title, string message)
+    {
+        try
+        {
+            _ = MessageBoxW(IntPtr.Zero, message, title, MbOk | MbIconError);
+        }
+        catch
+        {
+            // ignore — status line still shows the error
+        }
+    }
+
+    private const uint MbOk = 0x00000000;
+    private const uint MbIconError = 0x00000010;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, BestFitMapping = false)]
+    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
     private void ClearStatus()
     {
