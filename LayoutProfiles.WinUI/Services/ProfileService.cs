@@ -1,10 +1,22 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using LayoutProfiles.WinUI.Models;
 
 namespace LayoutProfiles.WinUI.Services;
 
 public sealed class ProfileService
 {
+    public static string ProfilePathForName(string name)
+    {
+        var safe = Regex.Replace(name, @"[^a-zA-Z0-9._-]+", "_").Trim('.', '_');
+        if (string.IsNullOrEmpty(safe))
+        {
+            safe = "default";
+        }
+
+        return Path.Combine(RepoPaths.ProfilesDir, $"{safe}.json");
+    }
+
     public IReadOnlyList<ProfileRow> ListProfiles()
     {
         var dir = RepoPaths.ProfilesDir;

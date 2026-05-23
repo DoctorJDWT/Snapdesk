@@ -16,7 +16,7 @@ namespace LayoutProfiles.WinUI.Helpers;
 internal sealed class WindowPositionController
 {
     private const int DragThresholdPixels = 2;
-    private const int AutoHideRevealPixels = 6;
+    private static int AutoHideRevealPixels => DockRevealIndicatorHelper.RevealBandDepthPx;
     private const int AutoHideHideDelayTicks = 4;
     private const int VkLButton = 0x01;
 
@@ -44,6 +44,44 @@ internal sealed class WindowPositionController
     public bool IsAutoHidden => _isAutoHidden;
 
     public bool IsTracking => _tracking;
+
+    /// <summary>
+    /// Pill dragged away from the dock edge: show the widget, clear dock state, and keep dragging on the main window.
+    /// </summary>
+    public void ContinueDragFromPill(PointInt32 windowStart, int deltaX, int deltaY, int cursorStartX, int cursorStartY)
+    {
+        if (_tracking)
+        {
+            EndTracking();
+        }
+
+        ClearAutoHideClip();
+        ClearDockState();
+        _isAutoHidden = false;
+
+        try
+        {
+            var appWindow = _getAppWindow();
+            appWindow.Show(false);
+            var target = ClampFreeMoveTarget(windowStart, deltaX, deltaY, appWindow);
+            appWindow.Move(target);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        NotifyDockStateChanged();
+        _onPositionChanged?.Invoke();
+
+        _windowStart = windowStart;
+        _cursorStart = new NativePoint { X = cursorStartX, Y = cursorStartY };
+        _tracking = true;
+        _dragging = true;
+        _activePointer = null;
+        NativeMethods.SetCapture(WindowHandle);
+        CompositionTarget.Rendering += OnCompositionRendering;
+    }
 
     public WindowPositionController(
         Window window,
@@ -359,6 +397,12 @@ internal sealed class WindowPositionController
         }
     }
 
+    /// <summary>Reveal the widget when docked and rolled up to the screen edge.</summary>
+    public void RevealIfAutoHidden()
+    {
+        ShowAutoHiddenWindow();
+    }
+
     private void ShowAutoHiddenWindow()
     {
         if (!_isAutoHidden || _dockEdge == WindowDockEdge.None)
@@ -475,27 +519,48 @@ internal sealed class WindowPositionController
         var size = appWindow.Size;
         var pos = appWindow.Position;
         var work = display.WorkArea;
+        var centerX = pos.X + size.Width / 2;
+        var centerY = pos.Y + size.Height / 2;
+        var halfPillLong = (int)(DockRevealIndicatorHelper.PillLong / 2);
+        var reveal = AutoHideRevealPixels;
 
         return edge switch
         {
             WindowDockEdge.Left =>
-                cursor.X <= work.X + AutoHideRevealPixels
-                && cursor.Y >= pos.Y
-                && cursor.Y <= pos.Y + size.Height,
+                cursor.X <= work.X + reveal
+                && cursor.Y >= centerY - halfPillLong
+                && cursor.Y <= centerY + halfPillLong,
             WindowDockEdge.Right =>
-                cursor.X >= work.X + work.Width - AutoHideRevealPixels
-                && cursor.Y >= pos.Y
-                && cursor.Y <= pos.Y + size.Height,
+                cursor.X >= work.X + work.Width - reveal
+                && cursor.Y >= centerY - halfPillLong
+                && cursor.Y <= centerY + halfPillLong,
             WindowDockEdge.Top =>
-                cursor.Y <= work.Y + AutoHideRevealPixels
-                && cursor.X >= pos.X
-                && cursor.X <= pos.X + size.Width,
+                cursor.Y <= work.Y + reveal
+                && cursor.X >= centerX - halfPillLong
+                && cursor.X <= centerX + halfPillLong,
             WindowDockEdge.Bottom =>
-                cursor.Y >= work.Y + work.Height - AutoHideRevealPixels
-                && cursor.X >= pos.X
-                && cursor.X <= pos.X + size.Width,
+                cursor.Y >= work.Y + work.Height - reveal
+                && cursor.X >= centerX - halfPillLong
+                && cursor.X <= centerX + halfPillLong,
             _ => false,
         };
+    }
+
+    private static PointInt32 ClampFreeMoveTarget(
+        PointInt32 windowStart,
+        int deltaX,
+        int deltaY,
+        AppWindow appWindow)
+    {
+        var size = appWindow.Size;
+        var display = DisplayArea.GetFromPoint(
+            new PointInt32(windowStart.X + deltaX + size.Width / 2, windowStart.Y + deltaY + size.Height / 2),
+            DisplayAreaFallback.Nearest);
+        var work = display.WorkArea;
+        var target = new PointInt32(windowStart.X + deltaX, windowStart.Y + deltaY);
+        var x = Math.Clamp(target.X, work.X, Math.Max(work.X, work.X + work.Width - size.Width));
+        var y = Math.Clamp(target.Y, work.Y, Math.Max(work.Y, work.Y + work.Height - size.Height));
+        return new PointInt32(x, y);
     }
 
     private void ClearAutoHideClip()

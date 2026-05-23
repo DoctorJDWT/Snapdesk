@@ -7,10 +7,10 @@
     <AssemblyName>Snapdesk</AssemblyName>
     <Product>Snapdesk</Product>
     <AssemblyTitle>Snapdesk</AssemblyTitle>
-    <Version>1.0.29</Version>
-    <AssemblyVersion>1.0.29.0</AssemblyVersion>
-    <FileVersion>1.0.29.0</FileVersion>
-    <InformationalVersion>1.0.29</InformationalVersion>
+    <Version>1.0.30</Version>
+    <AssemblyVersion>1.0.30.0</AssemblyVersion>
+    <FileVersion>1.0.30.0</FileVersion>
+    <InformationalVersion>1.0.30</InformationalVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <UseAppHost>true</UseAppHost>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -43,18 +43,28 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
   </ItemGroup>
 
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+  </ItemGroup>
+
   <!--
     Unpackaged publish omits compiled XAML (.xbf) by default. Secondary Window pages then fail
     InitializeComponent with "XAML parsing failed." Do not publish App.xbf without PRI/theme
     resources (breaks XamlControlsResources / themeresources.xaml at startup).
   -->
+  <!-- Dev bin output: App.xbf breaks unpackaged XamlControlsResources (themeresources.xaml). -->
+  <Target Name="RemovePrimaryXbfFromOutput" AfterTargets="Build">
+    <Delete Files="$(OutputPath)App.xbf;$(OutputPath)MainWindow.xbf" Condition="'$(OutputPath)' != ''" />
+  </Target>
+
   <Target Name="CopySecondaryWindowXbfToPublishDir" AfterTargets="Publish">
     <ItemGroup>
       <_SnapdeskSecondaryXbf
         Include="$(OutputPath)ProfileEditorWindow.xbf;
                  $(OutputPath)ProfileDeleteWindow.xbf;
                  $(OutputPath)ProfileActionsWindow.xbf;
-                 $(OutputPath)UninstallConfirmWindow.xbf" />
+                 $(OutputPath)UninstallConfirmWindow.xbf;
+                 $(OutputPath)HotkeyCaptureWindow.xbf" />
     </ItemGroup>
     <Copy
       SourceFiles="@(_SnapdeskSecondaryXbf)"

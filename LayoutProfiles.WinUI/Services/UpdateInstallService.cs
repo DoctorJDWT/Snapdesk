@@ -143,6 +143,8 @@ public sealed class UpdateInstallService
             "Snapdesk",
             $"Snapdesk was updated to version {AppVersion.Display}.",
             NativeMessageBox.MbOk | NativeMessageBox.MbIconInformation);
+
+        settings.ClearLastInstalledVersionAttempt();
     }
 
     private static async Task OpenReleasePageAsync(string url)

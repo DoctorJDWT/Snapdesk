@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 import time
+from ctypes import byref, create_unicode_buffer, sizeof, windll, wintypes
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -29,8 +30,6 @@ from typing import Any
 import win32con
 import win32gui
 import win32process
-from ctypes import byref, create_unicode_buffer, sizeof, windll, wintypes
-
 
 kernel32 = windll.kernel32
 user32 = windll.user32
@@ -1459,7 +1458,7 @@ def main() -> None:
 
     sub.add_parser("list-windows", help="List pickable windows as JSON (GUI)")
 
-    ap = sub.add_parser("path", help="Show where profiles are stored")
+    sub.add_parser("path", help="Show where profiles are stored")
 
     dp = sub.add_parser("delete", help="Delete a saved profile JSON")
     dp.add_argument(
@@ -1606,7 +1605,7 @@ def main() -> None:
         profile_path = Path(args.profile_path).expanduser()
         try:
             profile_path = profile_path.resolve()
-        except OSError as e:
+        except OSError:
             print(f"Invalid profile path: {args.profile_path!r}", file=sys.stderr)
             sys.exit(1)
         try:

@@ -18,8 +18,8 @@ public sealed partial class ProfileEditorWindow : Window
 {
     private const int WindowWidth = 760;
     private const int MinWindowHeight = 520;
-    /// <summary>Non-list chrome: heading, name, labels, buttons, padding.</summary>
-    private const int FixedEditorHeight = 268;
+    /// <summary>Non-list chrome: heading, name, hotkey, labels, buttons, padding.</summary>
+    private const int FixedEditorHeight = 328;
     private const int ApplicationRowHeight = 44;
     private const int MinListViewportHeight = 280;
     /// <summary>Share of monitor work-area height used for the editor at most.</summary>
@@ -30,6 +30,10 @@ public sealed partial class ProfileEditorWindow : Window
     private TextBlock _headingText = null!;
     private TextBlock _nameLabelText = null!;
     private TextBox _nameBox = null!;
+    private TextBlock _hotkeyLabelText = null!;
+    private TextBlock _hotkeyChordText = null!;
+    private Button _setHotkeyButton = null!;
+    private Button _clearHotkeyButton = null!;
     private TextBlock _applicationsLabelText = null!;
     private TextBlock _windowsHintText = null!;
     private ScrollViewer _windowListScroll = null!;
@@ -43,14 +47,24 @@ public sealed partial class ProfileEditorWindow : Window
     private readonly TaskCompletionSource<ProfileEditorResult?> _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ProfileEditorMode _mode;
     private readonly string? _profilePath;
+    private readonly int _predictedRestoreSlot;
+    private readonly HotkeyBinding? _initialHotkey;
     private readonly ProfileService _profiles = new();
     private readonly PythonBridge _python = new();
     private readonly List<WindowPickerItem> _pickerItems = new();
     private HashSet<string> _savedKeys = new(StringComparer.OrdinalIgnoreCase);
+    private uint _hotkeyModifiers;
+    private uint _hotkeyVirtualKey;
+    private ProfileHotkeyIntent _hotkeyIntent = ProfileHotkeyIntent.Unchanged;
     private bool _completed;
     private bool _listInitialized;
 
-    private ProfileEditorWindow(ProfileEditorMode mode, string initialName, string? profilePath)
+    private ProfileEditorWindow(
+        ProfileEditorMode mode,
+        string initialName,
+        string? profilePath,
+        int predictedRestoreSlot,
+        HotkeyBinding? initialHotkey)
     {
         CrashLog.WriteDiagnostic("ProfileEditorWindow.ctor", $"begin mode={mode}");
         try
@@ -68,6 +82,13 @@ public sealed partial class ProfileEditorWindow : Window
         Title = "Snapdesk";
         _mode = mode;
         _profilePath = profilePath;
+        _predictedRestoreSlot = predictedRestoreSlot;
+        _initialHotkey = initialHotkey;
+        if (initialHotkey is not null)
+        {
+            _hotkeyModifiers = initialHotkey.Modifiers;
+            _hotkeyVirtualKey = initialHotkey.VirtualKey;
+        }
 
         _headingText.Text = mode == ProfileEditorMode.Create ? "New layout" : "Edit layout";
         _nameBox.PlaceholderText = mode == ProfileEditorMode.Create ? "e.g. League" : "Profile name";
@@ -77,6 +98,7 @@ public sealed partial class ProfileEditorWindow : Window
             : "Add or remove windows. Checked items are saved in the profile.";
 
         _nameBox.TextChanged += (_, _) => _errorText.Visibility = Visibility.Collapsed;
+        UpdateHotkeyDisplay();
         _rootGrid.Loaded += OnRootGridLoaded;
         Closed += OnClosed;
         _rootGrid.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), handledEventsToo: true);
@@ -88,18 +110,28 @@ public sealed partial class ProfileEditorWindow : Window
         CrashLog.WriteDiagnostic("ProfileEditorWindow.ctor", "end");
     }
 
-    public static Task<ProfileEditorResult?> ShowCreateAsync()
+    public static Task<ProfileEditorResult?> ShowCreateAsync(int predictedRestoreSlot = 0)
     {
         CrashLog.WriteDiagnostic("ProfileEditorWindow.ShowCreateAsync", "creating window");
-        var window = new ProfileEditorWindow(ProfileEditorMode.Create, string.Empty, profilePath: null);
+        var window = new ProfileEditorWindow(
+            ProfileEditorMode.Create,
+            string.Empty,
+            profilePath: null,
+            predictedRestoreSlot,
+            initialHotkey: null);
         WindowChromeHelper.PresentModal(window, App.MainWindowInstance);
         return window._tcs.Task;
     }
 
-    public static Task<ProfileEditorResult?> ShowEditAsync(ProfileRow row)
+    public static Task<ProfileEditorResult?> ShowEditAsync(ProfileRow row, HotkeyBinding? currentHotkey = null)
     {
         CrashLog.WriteDiagnostic("ProfileEditorWindow.ShowEditAsync", $"profile={row.DisplayName}");
-        var window = new ProfileEditorWindow(ProfileEditorMode.Edit, row.DisplayName, row.FilePath);
+        var window = new ProfileEditorWindow(
+            ProfileEditorMode.Edit,
+            row.DisplayName,
+            row.FilePath,
+            predictedRestoreSlot: 0,
+            currentHotkey);
         WindowChromeHelper.PresentModal(window, App.MainWindowInstance);
         return window._tcs.Task;
     }
@@ -107,13 +139,13 @@ public sealed partial class ProfileEditorWindow : Window
     private void BuildUi()
     {
         _rootGrid = new Grid { Padding = new Thickness(16) };
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < 8; i++)
         {
             var row = new RowDefinition
             {
-                Height = i == 3 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto,
+                Height = i == 4 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto,
             };
-            if (i == 3)
+            if (i == 4)
             {
                 row.MinHeight = 0;
             }
@@ -142,6 +174,46 @@ public sealed partial class ProfileEditorWindow : Window
         namePanel.Children.Add(_nameBox);
         Grid.SetRow(namePanel, 1);
 
+        _hotkeyLabelText = new TextBlock
+        {
+            Text = "Keyboard shortcut",
+            FontSize = 13,
+            Opacity = 0.75,
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+        _hotkeyChordText = new TextBlock
+        {
+            FontSize = 14,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _setHotkeyButton = new Button { Content = "Set hotkey…" };
+        _setHotkeyButton.Click += OnSetHotkeyClick;
+        _clearHotkeyButton = new Button { Content = "Clear" };
+        _clearHotkeyButton.Click += OnClearHotkeyClick;
+
+        var hotkeyActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        hotkeyActions.Children.Add(_setHotkeyButton);
+        hotkeyActions.Children.Add(_clearHotkeyButton);
+
+        var hotkeyRow = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        hotkeyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        hotkeyRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(_hotkeyChordText, 0);
+        Grid.SetColumn(hotkeyActions, 1);
+        hotkeyRow.Children.Add(_hotkeyChordText);
+        hotkeyRow.Children.Add(hotkeyActions);
+
+        var hotkeyPanel = new StackPanel();
+        hotkeyPanel.Children.Add(_hotkeyLabelText);
+        hotkeyPanel.Children.Add(hotkeyRow);
+        Grid.SetRow(hotkeyPanel, 2);
+
         _applicationsLabelText = new TextBlock
         {
             Text = "Applications",
@@ -160,7 +232,7 @@ public sealed partial class ProfileEditorWindow : Window
         var appsPanel = new StackPanel { Margin = new Thickness(0, 18, 0, 8) };
         appsPanel.Children.Add(_applicationsLabelText);
         appsPanel.Children.Add(_windowsHintText);
-        Grid.SetRow(appsPanel, 2);
+        Grid.SetRow(appsPanel, 3);
 
         _windowListPanel = new StackPanel();
         _windowListScroll = new ScrollViewer
@@ -170,7 +242,7 @@ public sealed partial class ProfileEditorWindow : Window
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Content = _windowListPanel,
         };
-        Grid.SetRow(_windowListScroll, 3);
+        Grid.SetRow(_windowListScroll, 4);
 
         _emptyWindowsText = new TextBlock
         {
@@ -180,7 +252,7 @@ public sealed partial class ProfileEditorWindow : Window
             TextWrapping = TextWrapping.WrapWholeWords,
             Visibility = Visibility.Collapsed,
         };
-        Grid.SetRow(_emptyWindowsText, 4);
+        Grid.SetRow(_emptyWindowsText, 5);
 
         _errorText = new TextBlock
         {
@@ -190,7 +262,7 @@ public sealed partial class ProfileEditorWindow : Window
             TextWrapping = TextWrapping.WrapWholeWords,
             Visibility = Visibility.Collapsed,
         };
-        Grid.SetRow(_errorText, 5);
+        Grid.SetRow(_errorText, 6);
 
         _cancelButton = new Button { Content = "Cancel" };
         _cancelButton.Click += OnCancelClick;
@@ -209,10 +281,11 @@ public sealed partial class ProfileEditorWindow : Window
         buttonPanel.Children.Add(_cancelButton);
         buttonPanel.Children.Add(_refreshButton);
         buttonPanel.Children.Add(_saveButton);
-        Grid.SetRow(buttonPanel, 6);
+        Grid.SetRow(buttonPanel, 7);
 
         _rootGrid.Children.Add(_headingText);
         _rootGrid.Children.Add(namePanel);
+        _rootGrid.Children.Add(hotkeyPanel);
         _rootGrid.Children.Add(appsPanel);
         _rootGrid.Children.Add(_windowListScroll);
         _rootGrid.Children.Add(_emptyWindowsText);
@@ -263,6 +336,8 @@ public sealed partial class ProfileEditorWindow : Window
 
         _headingText.Foreground = palette.Primary;
         _nameLabelText.Foreground = palette.Muted;
+        _hotkeyLabelText.Foreground = palette.Muted;
+        _hotkeyChordText.Foreground = palette.Primary;
         _applicationsLabelText.Foreground = palette.Primary;
         _windowsHintText.Foreground = palette.Muted;
         _emptyWindowsText.Foreground = palette.Muted;
@@ -418,6 +493,77 @@ public sealed partial class ProfileEditorWindow : Window
         }
     }
 
+    private string GetHotkeyActionLabel()
+    {
+        var profileName = string.IsNullOrWhiteSpace(_nameBox.Text)
+            ? "this profile"
+            : _nameBox.Text.Trim();
+        if (_mode == ProfileEditorMode.Create
+            && _predictedRestoreSlot is > 0 and <= HotkeyActionIds.MaxRestoreSlots)
+        {
+            return $"Restore {profileName} (slot {_predictedRestoreSlot})";
+        }
+
+        return $"Restore {profileName}";
+    }
+
+    private void UpdateHotkeyDisplay()
+    {
+        _hotkeyChordText.Text = SettingsService.FormatHotkeyChord(_hotkeyModifiers, _hotkeyVirtualKey);
+        _clearHotkeyButton.IsEnabled = _hotkeyVirtualKey != 0 || _hotkeyIntent == ProfileHotkeyIntent.Set;
+    }
+
+    private async void OnSetHotkeyClick(object sender, RoutedEventArgs e)
+    {
+        HotkeyCaptureResult? captured;
+        try
+        {
+            captured = await HotkeyCaptureWindow.ShowAsync(
+                GetHotkeyActionLabel(),
+                _hotkeyModifiers,
+                _hotkeyVirtualKey);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("ProfileEditorWindow.OnSetHotkeyClick", ex);
+            _errorText.Text = "Could not open hotkey capture.";
+            _errorText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        if (captured is null)
+        {
+            return;
+        }
+
+        _hotkeyModifiers = captured.Modifiers;
+        _hotkeyVirtualKey = captured.VirtualKey;
+        _hotkeyIntent = ProfileHotkeyIntent.Set;
+        UpdateHotkeyDisplay();
+    }
+
+    private void OnClearHotkeyClick(object sender, RoutedEventArgs e)
+    {
+        _hotkeyModifiers = _initialHotkey?.Modifiers ?? HotkeyModifiers.DefaultChord;
+        _hotkeyVirtualKey = 0;
+        _hotkeyIntent = ProfileHotkeyIntent.Clear;
+        UpdateHotkeyDisplay();
+    }
+
+    private ProfileHotkeySelection? BuildHotkeySelection()
+    {
+        return _hotkeyIntent switch
+        {
+            ProfileHotkeyIntent.Unchanged => null,
+            ProfileHotkeyIntent.Clear => new ProfileHotkeySelection(ProfileHotkeyIntent.Clear),
+            ProfileHotkeyIntent.Set => new ProfileHotkeySelection(
+                ProfileHotkeyIntent.Set,
+                _hotkeyModifiers,
+                _hotkeyVirtualKey),
+            _ => null,
+        };
+    }
+
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(_nameBox.Text))
@@ -435,7 +581,7 @@ public sealed partial class ProfileEditorWindow : Window
             return;
         }
 
-        Complete(new ProfileEditorResult(_nameBox.Text.Trim(), selected));
+        Complete(new ProfileEditorResult(_nameBox.Text.Trim(), selected, BuildHotkeySelection()));
     }
 
     private void OnCancelClick(object sender, RoutedEventArgs e) => Complete(null);

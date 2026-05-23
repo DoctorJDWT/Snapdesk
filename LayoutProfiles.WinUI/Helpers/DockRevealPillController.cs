@@ -1,5 +1,6 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Windows.Graphics;
 using WinRT.Interop;
 
 namespace LayoutProfiles.WinUI.Helpers;
@@ -10,13 +11,20 @@ namespace LayoutProfiles.WinUI.Helpers;
 internal sealed class DockRevealPillController
 {
     private readonly Func<AppWindow> _getAppWindow;
+    private readonly Action? _onMainWindowMoved;
+    private readonly Action<PointInt32, int, int, int, int>? _onUndockDragStarted;
     private DockRevealPillWindow? _pillWindow;
     private bool _registered;
     private bool _isShown;
 
-    public DockRevealPillController(Func<AppWindow> getAppWindow)
+    public DockRevealPillController(
+        Func<AppWindow> getAppWindow,
+        Action? onMainWindowMoved = null,
+        Action<PointInt32, int, int, int, int>? onUndockDragStarted = null)
     {
         _getAppWindow = getAppWindow;
+        _onMainWindowMoved = onMainWindowMoved;
+        _onUndockDragStarted = onUndockDragStarted;
     }
 
     public void Update(WindowDockEdge edge, bool isAutoHidden, DisplayArea? dockedDisplay)
@@ -104,7 +112,11 @@ internal sealed class DockRevealPillController
             return;
         }
 
-        _pillWindow = new DockRevealPillWindow();
+        _pillWindow = new DockRevealPillWindow
+        {
+            OnMainWindowMoved = _onMainWindowMoved,
+            OnUndockDragStarted = _onUndockDragStarted,
+        };
         if (!_registered)
         {
             SecondaryWindowTracker.Register(_pillWindow);

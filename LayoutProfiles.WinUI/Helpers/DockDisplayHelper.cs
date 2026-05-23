@@ -146,6 +146,37 @@ internal static class DockDisplayHelper
         };
     }
 
+    /// <summary>
+    /// Slide a docked window along its edge (used while auto-hidden and dragging the reveal pill).
+    /// </summary>
+    public static PointInt32 SlideAlongDockEdge(
+        WindowDockEdge edge,
+        PointInt32 windowStart,
+        int deltaX,
+        int deltaY,
+        SizeInt32 size,
+        RectInt32 work)
+    {
+        var target = new PointInt32(windowStart.X + deltaX, windowStart.Y + deltaY);
+        var x = Math.Clamp(
+            target.X,
+            work.X,
+            Math.Max(work.X, work.X + work.Width - size.Width));
+        var y = Math.Clamp(
+            target.Y,
+            work.Y,
+            Math.Max(work.Y, work.Y + work.Height - size.Height));
+
+        return edge switch
+        {
+            WindowDockEdge.Left => new PointInt32(work.X, y),
+            WindowDockEdge.Right => new PointInt32(work.X + work.Width - size.Width, y),
+            WindowDockEdge.Top => new PointInt32(x, work.Y),
+            WindowDockEdge.Bottom => new PointInt32(x, work.Y + work.Height - size.Height),
+            _ => new PointInt32(x, y),
+        };
+    }
+
     private static bool TryGetNearestEdge(
         PointInt32 pos,
         SizeInt32 size,
