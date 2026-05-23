@@ -5,6 +5,7 @@
 param(
     [string] $InstallDir,
     [string] $ExpectedVersion,
+    [string] $LogPath,
     [switch] $AddToStartup,
     [switch] $NoPrompt,
     [switch] $LaunchAfterInstall,
@@ -14,6 +15,75 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Write-InstallLog {
+    param([string] $Message)
+    if ([string]::IsNullOrWhiteSpace($LogPath)) {
+        return
+    }
+    try {
+        $line = "{0:u} {1}" -f (Get-Date).ToUniversalTime(), $Message
+        Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+    }
+    catch {
+        # best-effort logging
+    }
+}
+
+function Get-SnapdeskSettingsPath {
+    Join-Path $env:LOCALAPPDATA "LayoutProfiles\settings.json"
+}
+
+function Update-SnapdeskSettings {
+    param([hashtable] $Updates)
+
+    $path = Get-SnapdeskSettingsPath
+    $root = @{}
+    if (Test-Path -LiteralPath $path) {
+        try {
+            $parsed = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            if ($null -ne $parsed) {
+                foreach ($prop in $parsed.PSObject.Properties) {
+                    $root[$prop.Name] = $prop.Value
+                }
+            }
+        }
+        catch {
+            $root = @{}
+        }
+    }
+
+    foreach ($key in $Updates.Keys) {
+        if ($null -eq $Updates[$key]) {
+            $null = $root.Remove($key)
+        }
+        else {
+            $root[$key] = $Updates[$key]
+        }
+    }
+
+    $dir = Split-Path $path -Parent
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    ($root | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
+function Save-LastInstalledVersionToSettings {
+    param([string] $Version)
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        return
+    }
+    Update-SnapdeskSettings @{
+        last_installed_version     = $Version.Trim()
+        last_installed_version_utc = (Get-Date).ToUniversalTime().ToString("o")
+        update_install_started_utc = $null
+    }
+}
+
+function Clear-UpdateInstallStartedSettings {
+    Update-SnapdeskSettings @{
+        update_install_started_utc = $null
+    }
+}
 
 # Launch when install finishes unless -NoLaunch. First-run Install Snapdesk.cmd needs no flags.
 $shouldLaunchAfterInstall = -not $NoLaunch
@@ -256,13 +326,25 @@ function Start-InstalledSnapdesk([string] $Dir) {
         return $false
     }
 
+    Start-Sleep -Milliseconds 800
+
+    $exePath = Find-SnapdeskExecutable $Dir
+    if ($exePath -and ($exePath.EndsWith(".exe", [System.StringComparison]::OrdinalIgnoreCase))) {
+        $proc = Start-Process -FilePath $exePath -WorkingDirectory $Dir -PassThru
+        if ($proc) {
+            Start-Sleep -Milliseconds 400
+            if (-not $proc.HasExited) {
+                return $true
+            }
+        }
+    }
+
     $launcherVbs = Join-Path $Dir "launch_snapdesk.vbs"
     if (Test-Path -LiteralPath $launcherVbs) {
         Start-Process -FilePath $launcherVbs -WorkingDirectory $Dir
         return $true
     }
 
-    $exePath = Find-SnapdeskExecutable $Dir
     if ($exePath) {
         Start-Process -FilePath $exePath -WorkingDirectory $Dir
         return $true
@@ -665,6 +747,7 @@ else {
 }
 
 $isUpdateRun = $NoPrompt -or -not [string]::IsNullOrWhiteSpace($ExpectedVersion)
+Write-InstallLog "Install started updateRun=$isUpdateRun installDir=$installDir expected=$ExpectedVersion pid=$ProcessId"
 if ($isUpdateRun) {
     Remove-SnapdeskStartupShortcut
 }
@@ -686,40 +769,72 @@ if (-not $NoPrompt -and [string]::IsNullOrWhiteSpace($InstallDir)) {
     }
 }
 
+$alreadyInstalled = (Test-Path -LiteralPath (Join-Path $installDir "invoke_python.ps1")) -and
+    (Test-Path -LiteralPath (Join-Path $installDir "src\layout_manager.py")) -and
+    ((Test-Path -LiteralPath (Join-Path $installDir "Snapdesk.exe")) -or
+     (Test-Path -LiteralPath (Join-Path $installDir "LayoutProfiles.WinUI.exe")))
+
+function Test-PythonHasPywin32([string] $PythonExe) {
+    if ([string]::IsNullOrWhiteSpace($PythonExe)) {
+        return $false
+    }
+    & $PythonExe -c "import win32api" 2>$null | Out-Null
+    return $LASTEXITCODE -eq 0
+}
+
+function Complete-UpdateInstallFailure {
+    param([string] $Reason)
+    Write-InstallLog "Update install failed: $Reason"
+    if ($isUpdateRun) {
+        Update-SnapdeskSettings @{
+            last_installed_version     = $null
+            last_installed_version_utc = $null
+            update_install_started_utc = $null
+        }
+    }
+}
+
 # --- Dependencies ---
 $wingetWarnings = New-Object System.Collections.Generic.List[string]
 
 $payloadForDeps = if (Test-Path -LiteralPath $distDir) { $distDir } else { $installDir }
 $selfContained = Test-SelfContainedPublish $payloadForDeps
+$skipDependencySetup = $isUpdateRun -and $alreadyInstalled -and (Test-Path -LiteralPath $distDir)
 
-if ($selfContained) {
-    Write-Step "App publish is self-contained - skipping .NET 8 desktop runtime."
+if ($skipDependencySetup) {
+    Write-Step "In-app update: skipping dependency setup."
+    Write-InstallLog "Skipping dependency setup for in-app update."
 }
 else {
-    $r = Invoke-WingetInstall "Microsoft.DotNet.DesktopRuntime.8" ".NET 8 Desktop Runtime"
-    if (-not $r.Ok) { $wingetWarnings.Add(".NET 8 Desktop Runtime: $($r.Message)") }
-}
-
-$r = Invoke-WingetInstall "Microsoft.WindowsAppRuntime.1.6" "Windows App Runtime 1.6 (x64)"
-if (-not $r.Ok) {
     if ($selfContained) {
-        Write-Step "Windows App Runtime winget step skipped/warned (app bundles WinApp SDK)."
+        Write-Step "App publish is self-contained - skipping .NET 8 desktop runtime."
     }
     else {
-        $wingetWarnings.Add("Windows App Runtime: $($r.Message)")
+        $r = Invoke-WingetInstall "Microsoft.DotNet.DesktopRuntime.8" ".NET 8 Desktop Runtime"
+        if (-not $r.Ok) { $wingetWarnings.Add(".NET 8 Desktop Runtime: $($r.Message)") }
     }
-}
 
-$py = Find-PythonExe
-if (-not $py) {
-    $r = Invoke-WingetInstall "Python.Python.3.12" "Python 3.12"
-    if (-not $r.Ok) { $wingetWarnings.Add("Python 3.12: $($r.Message)") }
-    Start-Sleep -Seconds 3
+    $r = Invoke-WingetInstall "Microsoft.WindowsAppRuntime.1.6" "Windows App Runtime 1.6 (x64)"
+    if (-not $r.Ok) {
+        if ($selfContained) {
+            Write-Step "Windows App Runtime winget step skipped/warned (app bundles WinApp SDK)."
+        }
+        else {
+            $wingetWarnings.Add("Windows App Runtime: $($r.Message)")
+        }
+    }
+
     $py = Find-PythonExe
-}
+    if (-not $py) {
+        $r = Invoke-WingetInstall "Python.Python.3.12" "Python 3.12"
+        if (-not $r.Ok) { $wingetWarnings.Add("Python 3.12: $($r.Message)") }
+        Start-Sleep -Seconds 3
+        $py = Find-PythonExe
+    }
 
-if (-not $py) {
-    Show-Message @"
+    if (-not $py) {
+        Complete-UpdateInstallFailure "Python not found"
+        Show-Message @"
 Python was not found and could not be installed automatically.
 
 Install Python 3.12 manually (tick Add python.exe to PATH), then run this installer again:
@@ -727,24 +842,26 @@ Install Python 3.12 manually (tick Add python.exe to PATH), then run this instal
 
 Turn OFF App Execution Aliases for python.exe in Windows Settings > Apps.
 "@ "Snapdesk Setup" ([System.Windows.Forms.MessageBoxButtons]::OK) ([System.Windows.Forms.MessageBoxIcon]::Warning)
-    exit 1
-}
+        exit 1
+    }
 
-Write-Step "Using Python: $py"
-Write-Step "Installing pywin32..."
-& $py -m pip install --upgrade pip 2>&1 | Out-Host
-& $py -m pip install pywin32
-if ($LASTEXITCODE -ne 0) {
-    Show-Message "pip install pywin32 failed. Try running as your normal user after fixing Python, or run:`n& '$py' -m pip install pywin32" "Snapdesk Setup" ([System.Windows.Forms.MessageBoxButtons]::OK) ([System.Windows.Forms.MessageBoxIcon]::Warning)
-    exit 1
+    Write-Step "Using Python: $py"
+    if (-not (Test-PythonHasPywin32 $py)) {
+        Write-Step "Installing pywin32..."
+        & $py -m pip install --upgrade pip 2>&1 | Out-Host
+        & $py -m pip install pywin32
+        if ($LASTEXITCODE -ne 0) {
+            Complete-UpdateInstallFailure "pip install pywin32 failed"
+            Show-Message "pip install pywin32 failed. Try running as your normal user after fixing Python, or run:`n& '$py' -m pip install pywin32" "Snapdesk Setup" ([System.Windows.Forms.MessageBoxButtons]::OK) ([System.Windows.Forms.MessageBoxIcon]::Warning)
+            exit 1
+        }
+    }
+    else {
+        Write-Step "pywin32 already available for $py"
+    }
 }
 
 # --- Copy application files ---
-$alreadyInstalled = (Test-Path -LiteralPath (Join-Path $installDir "invoke_python.ps1")) -and
-    (Test-Path -LiteralPath (Join-Path $installDir "src\layout_manager.py")) -and
-    ((Test-Path -LiteralPath (Join-Path $installDir "Snapdesk.exe")) -or
-     (Test-Path -LiteralPath (Join-Path $installDir "LayoutProfiles.WinUI.exe")))
-
 $winUiProj = Join-Path $repoRoot "LayoutProfiles.WinUI\LayoutProfiles.WinUI.csproj"
 if (-not (Test-Path -LiteralPath $distDir) -and (Test-Path -LiteralPath $winUiProj)) {
     if (Get-Command dotnet -ErrorAction SilentlyContinue) {
@@ -786,6 +903,7 @@ Or skip the installer and use the dev launcher:
         Copy-SnapdeskPayload -SourceDir $distDir -TargetDir $installDir
     }
     catch {
+        Complete-UpdateInstallFailure $_.Exception.Message
         Show-Message $_.Exception.Message "Snapdesk Setup" ([System.Windows.Forms.MessageBoxButtons]::OK) ([System.Windows.Forms.MessageBoxIcon]::Warning)
         exit 1
     }
@@ -825,12 +943,18 @@ if (-not (Test-InstalledVersionMeetsExpected $installDir $ExpectedVersion)) {
     $exePathForVersion = Find-SnapdeskExecutable $installDir
     $found = if ($exePathForVersion) { Get-SnapdeskFileVersion $exePathForVersion } else { $null }
     $foundLabel = if ($found) { $found.ToString(3) } else { "unknown" }
+    Complete-UpdateInstallFailure "Installed version $foundLabel != expected $ExpectedVersion"
     Show-Message @"
 Snapdesk files were copied but the installed version ($foundLabel) does not match the expected update ($ExpectedVersion).
 
 Close any Snapdesk processes, then run Install Snapdesk.cmd again or download the latest release from GitHub.
 "@ "Snapdesk Setup" ([System.Windows.Forms.MessageBoxButtons]::OK) ([System.Windows.Forms.MessageBoxIcon]::Warning)
     exit 1
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ExpectedVersion)) {
+    Save-LastInstalledVersionToSettings $ExpectedVersion
+    Write-InstallLog "Saved installed version $ExpectedVersion to settings"
 }
 
 # --- Shortcuts ---
@@ -918,8 +1042,13 @@ if ($wingetWarnings.Count -gt 0) {
 
 if ($shouldLaunchAfterInstall) {
     Write-Step "Starting Snapdesk..."
+    Write-InstallLog "Launching Snapdesk from $installDir"
     if (-not (Start-InstalledSnapdesk $installDir)) {
+        Complete-UpdateInstallFailure "Start-InstalledSnapdesk returned false"
         Write-Host "Warning: install finished but Snapdesk could not be started from $installDir" -ForegroundColor Yellow
+    }
+    else {
+        Write-InstallLog "Snapdesk launch requested successfully"
     }
 }
 

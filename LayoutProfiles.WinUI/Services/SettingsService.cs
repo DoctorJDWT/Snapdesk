@@ -71,10 +71,11 @@ public sealed class SettingsService
 
     public const string LastInstalledVersionKey = "last_installed_version";
     public const string LastInstalledVersionUtcKey = "last_installed_version_utc";
+    public const string UpdateInstallStartedUtcKey = "update_install_started_utc";
     public const string HotkeysEnabledKey = "hotkeys_enabled";
     public const string HotkeyBindingsKey = "hotkey_bindings";
 
-    public static readonly TimeSpan InstallUpdateSuppressCooldown = TimeSpan.FromHours(48);
+    public static readonly TimeSpan UpdateInstallInProgressWindow = TimeSpan.FromMinutes(15);
 
     public void SaveLastUpdateCheckUtc(DateTimeOffset utcNow)
     {
@@ -94,6 +95,17 @@ public sealed class SettingsService
             [LastInstalledVersionUtcKey] = DateTimeOffset.UtcNow.UtcDateTime.ToString(
                 "o",
                 CultureInfo.InvariantCulture),
+            [UpdateInstallStartedUtcKey] = null,
+        });
+    }
+
+    public void SaveUpdateInstallStartedUtc(DateTimeOffset utcNow)
+    {
+        MergeAndSave(new Dictionary<string, object?>
+        {
+            [UpdateInstallStartedUtcKey] = utcNow.UtcDateTime.ToString(
+                "o",
+                CultureInfo.InvariantCulture),
         });
     }
 
@@ -101,7 +113,9 @@ public sealed class SettingsService
     {
         var path = RepoPaths.SettingsPath;
         var root = LoadMutableRoot(path);
-        var changed = root.Remove(LastInstalledVersionKey) | root.Remove(LastInstalledVersionUtcKey);
+        var changed = root.Remove(LastInstalledVersionKey)
+            | root.Remove(LastInstalledVersionUtcKey)
+            | root.Remove(UpdateInstallStartedUtcKey);
         if (!changed)
         {
             return;
@@ -109,6 +123,28 @@ public sealed class SettingsService
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, root.ToJsonString(WriteJsonOptions));
+    }
+
+    public static bool IsUpdateInstallInProgress(IReadOnlyDictionary<string, JsonElement> settings)
+    {
+        if (!settings.TryGetValue(UpdateInstallStartedUtcKey, out var utcEl)
+            || utcEl.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var raw = utcEl.GetString();
+        if (string.IsNullOrWhiteSpace(raw)
+            || !DateTimeOffset.TryParse(
+                raw,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var startedUtc))
+        {
+            return false;
+        }
+
+        return DateTimeOffset.UtcNow - startedUtc < UpdateInstallInProgressWindow;
     }
 
     public static bool ShouldSuppressUpdatePrompt(
@@ -126,36 +162,16 @@ public sealed class SettingsService
             return true;
         }
 
-        if (!settings.TryGetValue(LastInstalledVersionKey, out var versionEl)
-            || versionEl.ValueKind != JsonValueKind.String
-            || !Version.TryParse(versionEl.GetString(), out var installedTarget))
+        if (settings.TryGetValue(LastInstalledVersionKey, out var versionEl)
+            && versionEl.ValueKind == JsonValueKind.String
+            && Version.TryParse(versionEl.GetString(), out var installedTarget)
+            && installedTarget >= latest
+            && current >= installedTarget)
         {
-            return false;
+            return true;
         }
 
-        if (installedTarget < latest)
-        {
-            return false;
-        }
-
-        if (!settings.TryGetValue(LastInstalledVersionUtcKey, out var utcEl)
-            || utcEl.ValueKind != JsonValueKind.String)
-        {
-            return installedTarget >= latest;
-        }
-
-        var raw = utcEl.GetString();
-        if (string.IsNullOrWhiteSpace(raw)
-            || !DateTimeOffset.TryParse(
-                raw,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out var installedUtc))
-        {
-            return installedTarget >= latest;
-        }
-
-        return DateTimeOffset.UtcNow - installedUtc < InstallUpdateSuppressCooldown;
+        return IsUpdateInstallInProgress(settings);
     }
 
     public WidgetSizePreset GetWidgetSizePreset(Dictionary<string, JsonElement> settings)

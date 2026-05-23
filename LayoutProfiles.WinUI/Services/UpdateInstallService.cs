@@ -3,7 +3,6 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Text.Json;
 using LayoutProfiles.WinUI.Helpers;
-using Microsoft.UI.Xaml;
 using Windows.System;
 
 namespace LayoutProfiles.WinUI.Services;
@@ -67,7 +66,7 @@ public sealed class UpdateInstallService
                     $"Downloaded update does not contain version {expectedVersion}. Try again later or install manually from GitHub.");
             }
 
-            _settings.SaveLastInstalledVersionAttempt(result.LatestVersion);
+            _settings.SaveUpdateInstallStartedUtc(DateTimeOffset.UtcNow);
 
             RemoveSnapdeskStartupShortcuts();
 
@@ -77,7 +76,7 @@ public sealed class UpdateInstallService
                 NativeMessageBox.MbOk | NativeMessageBox.MbIconInformation);
 
             LaunchInstallDetached(scriptPath, installDir, Environment.ProcessId, expectedVersion);
-            ExitApplication();
+            ExitApplicationForUpdate();
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -239,28 +238,31 @@ public sealed class UpdateInstallService
     {
         RemoveSnapdeskStartupShortcuts();
 
+        var logPath = Path.Combine(RepoPaths.LayoutProfilesDataDir, "update-install.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+
         var arguments =
             $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\" " +
             $"-NoPrompt -InstallDir \"{installDir}\" -ProcessId {waitPid} -LaunchAfterInstall " +
-            $"-ExpectedVersion \"{expectedVersion}\"";
+            $"-ExpectedVersion \"{expectedVersion}\" -LogPath \"{logPath}\"";
 
-        _ = Process.Start(new ProcessStartInfo
+        using var process = Process.Start(new ProcessStartInfo
         {
             FileName = "powershell.exe",
             Arguments = arguments,
-            UseShellExecute = true,
+            UseShellExecute = false,
             CreateNoWindow = true,
-        });
+            WindowStyle = ProcessWindowStyle.Hidden,
+            WorkingDirectory = Path.GetDirectoryName(scriptPath)!,
+        }) ?? throw new InvalidOperationException(
+            "Could not start the update installer. Try installing manually from GitHub.");
+
+        StartupTrace.Write($"Update installer started pid={process.Id} log={logPath}");
     }
 
-    private static void ExitApplication()
+    /// <summary>Terminate immediately so the single-instance mutex and file locks are released.</summary>
+    private static void ExitApplicationForUpdate()
     {
-        if (Application.Current is not null)
-        {
-            Application.Current.Exit();
-            return;
-        }
-
         Environment.Exit(0);
     }
 

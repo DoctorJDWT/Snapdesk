@@ -1221,13 +1221,24 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (!result.IsUpdateAvailable || ShouldSuppressUpdatePrompt(result))
+        if (!result.IsUpdateAvailable)
         {
             NativeMessageBox.Show(
                 "Snapdesk",
-                result.IsUpdateAvailable && ShouldSuppressUpdatePrompt(result)
-                    ? $"You're on the latest version ({result.CurrentVersion})."
-                    : result.StatusMessage,
+                result.StatusMessage,
+                NativeMessageBox.MbOk | NativeMessageBox.MbIconInformation);
+            return;
+        }
+
+        if (ShouldSuppressUpdatePrompt(result))
+        {
+            var versionLabel = result.LatestVersion?.ToString(3) ?? "newer";
+            var message = SettingsService.IsUpdateInstallInProgress(_settingsCache)
+                ? $"Update {versionLabel} is installing now. Snapdesk will restart when finished."
+                : $"You're on the latest version ({result.CurrentVersion}).";
+            NativeMessageBox.Show(
+                "Snapdesk",
+                message,
                 NativeMessageBox.MbOk | NativeMessageBox.MbIconInformation);
             return;
         }
