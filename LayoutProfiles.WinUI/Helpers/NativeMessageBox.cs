@@ -18,8 +18,9 @@ internal static class NativeMessageBox
         {
             return MessageBoxW(IntPtr.Zero, message, title, type);
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.WriteDiagnostic("NativeMessageBox.Show", $"ignored: {ex.Message}"); // ignore
             return 0;
         }
     }

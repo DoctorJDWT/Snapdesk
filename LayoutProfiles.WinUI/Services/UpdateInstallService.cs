@@ -295,9 +295,9 @@ public sealed class UpdateInstallService
                 File.Delete(path);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // best-effort temp cleanup
+            CrashLog.WriteDiagnostic("UpdateInstallService.Delete", $"ignored: {ex.Message}"); // best-effort temp cleanup
         }
     }
 
@@ -310,9 +310,9 @@ public sealed class UpdateInstallService
                 Directory.Delete(path, recursive: true);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // best-effort temp cleanup
+            CrashLog.WriteDiagnostic("UpdateInstallService.Delete", $"ignored: {ex.Message}"); // best-effort temp cleanup
         }
     }
 }

@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using LayoutProfiles.WinUI.Models;
 
+using LayoutProfiles.WinUI.Helpers;
+
 namespace LayoutProfiles.WinUI.Services;
 
 public sealed class ProfileService
@@ -136,13 +138,13 @@ public sealed class ProfileService
                 list.Add(new PickableWindow(exe, title, browserUrl));
             }
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
-            // ignore malformed profile
+            CrashLog.WriteDiagnostic("ProfileService.ReadProfileWindows", $"ignored: {ex.Message}"); // ignore malformed profile
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("ProfileService.ReadProfileWindows", $"ignored: {ex.Message}"); // ignore
         }
 
         return list;

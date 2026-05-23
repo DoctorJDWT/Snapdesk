@@ -249,9 +249,9 @@ public sealed partial class HotkeyCaptureWindow : Window
             var hwnd = WindowNative.GetWindowHandle(this);
             WindowChromeHelper.ApplyNonClientFrame(hwnd, AppTheme.IsDark);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("HotkeyCaptureWindow.ApplyNonClientFrame", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -276,9 +276,9 @@ public sealed partial class HotkeyCaptureWindow : Window
         {
             Close();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore double-close
+            CrashLog.WriteDiagnostic("HotkeyCaptureWindow.Close", $"ignored: {ex.Message}"); // ignore double-close
         }
     }
 }

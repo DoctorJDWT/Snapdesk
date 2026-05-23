@@ -96,9 +96,9 @@ public sealed partial class UninstallConfirmWindow : Window
             var hwnd = WindowNative.GetWindowHandle(this);
             WindowChromeHelper.ApplyNonClientFrame(hwnd, AppTheme.IsDark);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("UninstallConfirmWindow.ApplyNonClientFrame", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -147,9 +147,9 @@ public sealed partial class UninstallConfirmWindow : Window
         {
             Close();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore double-close
+            CrashLog.WriteDiagnostic("UninstallConfirmWindow.Close", $"ignored: {ex.Message}"); // ignore double-close
         }
     }
 }

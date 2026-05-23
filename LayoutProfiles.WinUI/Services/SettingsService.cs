@@ -20,6 +20,8 @@ public sealed class SettingsService
         @"^(\d+)x(\d+)([+-]\d+)([+-]\d+)$",
         RegexOptions.Compiled);
 
+    private readonly object _ioLock = new();
+
     public Dictionary<string, JsonElement> Load()
     {
         var path = RepoPaths.SettingsPath;
@@ -30,7 +32,13 @@ public sealed class SettingsService
 
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            string json;
+            lock (_ioLock)
+            {
+                json = File.ReadAllText(path);
+            }
+
+            using var doc = JsonDocument.Parse(json);
             if (doc.RootElement.ValueKind != JsonValueKind.Object)
             {
                 return new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
@@ -55,14 +63,17 @@ public sealed class SettingsService
         var path = RepoPaths.SettingsPath;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
-        var root = LoadMutableRoot(path);
-
-        foreach (var (key, value) in updates)
+        lock (_ioLock)
         {
-            root[key] = CreateSettingsNode(value);
-        }
+            var root = LoadMutableRoot(path);
 
-        File.WriteAllText(path, root.ToJsonString(WriteJsonOptions));
+            foreach (var (key, value) in updates)
+            {
+                root[key] = CreateSettingsNode(value);
+            }
+
+            File.WriteAllText(path, root.ToJsonString(WriteJsonOptions));
+        }
     }
 
     public bool GetRunOnStartup(Dictionary<string, JsonElement> settings) =>
@@ -112,17 +123,21 @@ public sealed class SettingsService
     public void ClearLastInstalledVersionAttempt()
     {
         var path = RepoPaths.SettingsPath;
-        var root = LoadMutableRoot(path);
-        var changed = root.Remove(LastInstalledVersionKey)
-            | root.Remove(LastInstalledVersionUtcKey)
-            | root.Remove(UpdateInstallStartedUtcKey);
-        if (!changed)
-        {
-            return;
-        }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, root.ToJsonString(WriteJsonOptions));
+        lock (_ioLock)
+        {
+            var root = LoadMutableRoot(path);
+            var changed = root.Remove(LastInstalledVersionKey)
+                | root.Remove(LastInstalledVersionUtcKey)
+                | root.Remove(UpdateInstallStartedUtcKey);
+            if (!changed)
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, root.ToJsonString(WriteJsonOptions));
+        }
     }
 
     public static bool IsUpdateInstallInProgress(IReadOnlyDictionary<string, JsonElement> settings)

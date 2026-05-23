@@ -10,7 +10,7 @@ namespace LayoutProfiles.WinUI.Helpers;
 /// <summary>Persist and restore screen position for profile dialogs (same <c>WxH+X+Y</c> format as the widget).</summary>
 internal static class SecondaryWindowPlacement
 {
-    private static readonly SettingsService Settings = new();
+    private static SettingsService Settings => ServiceLocator.Settings;
 
     public const string ProfileEditor = "profile_editor";
     public const string ProfileDelete = "profile_delete";
@@ -51,18 +51,18 @@ internal static class SecondaryWindowPlacement
 
             WindowGeometryHelper.CenterOnPrimaryWorkArea(appWindow, width, height);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore placement failures
+            CrashLog.WriteDiagnostic("SecondaryWindowPlacement.CenterOnPrimaryWorkArea", $"ignored: {ex.Message}"); // ignore placement failures
         }
 
         try
         {
             WindowChromeHelper.ApplyRoundedCorners(window);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore DWM failures on older builds
+            CrashLog.WriteDiagnostic("SecondaryWindowPlacement.ApplyRoundedCorners", $"ignored: {ex.Message}"); // ignore DWM failures on older builds
         }
     }
 
@@ -84,9 +84,9 @@ internal static class SecondaryWindowPlacement
                 [SettingsService.DialogGeometryKey(dialogId)] = geom,
             });
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore persistence failures
+            CrashLog.WriteDiagnostic("SecondaryWindowPlacement.DialogGeometryKey", $"ignored: {ex.Message}"); // ignore persistence failures
         }
     }
 

@@ -66,9 +66,9 @@ internal sealed class WindowPositionController
             var target = ClampFreeMoveTarget(windowStart, deltaX, deltaY, appWindow);
             appWindow.Move(target);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("WindowPositionController.Move", $"ignored: {ex.Message}"); // ignore
         }
 
         NotifyDockStateChanged();
@@ -149,8 +149,9 @@ internal sealed class WindowPositionController
             UpdateAutoHideTimer();
             NotifyDockStateChanged();
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.WriteDiagnostic("WindowPositionController.SyncDockStateFromWindow", $"ignored: {ex.Message}"); // ignore
             ClearDockState();
             NotifyDockStateChanged();
         }
@@ -195,8 +196,9 @@ internal sealed class WindowPositionController
         {
             _windowStart = _getAppWindow().Position;
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.WriteDiagnostic("WindowPositionController.BeginTracking", $"ignored: {ex.Message}"); // ignore
             _windowStart = new PointInt32(0, 0);
         }
 
@@ -249,9 +251,9 @@ internal sealed class WindowPositionController
             NotifyDockStateChanged();
             _onPositionChanged?.Invoke();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("WindowPositionController.Invoke", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -333,8 +335,9 @@ internal sealed class WindowPositionController
             UpdateAutoHideTimer();
             NotifyDockStateChanged();
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.WriteDiagnostic("WindowPositionController.EndTracking", $"ignored: {ex.Message}"); // ignore
             ClearDockState();
             NotifyDockStateChanged();
         }
@@ -420,9 +423,9 @@ internal sealed class WindowPositionController
         {
             appWindow.Show(false);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("WindowPositionController.Show", $"ignored: {ex.Message}"); // ignore
         }
 
         if (TryGetDockedDisplay(out var display))
@@ -450,9 +453,9 @@ internal sealed class WindowPositionController
         {
             appWindow.Hide();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("WindowPositionController.Hide", $"ignored: {ex.Message}"); // ignore
         }
 
         NotifyDockStateChanged();

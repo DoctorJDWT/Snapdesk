@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Reflection;
 
+using LayoutProfiles.WinUI.Helpers;
+
 namespace LayoutProfiles.WinUI.Services;
 
 /// <summary>
@@ -59,9 +61,9 @@ public static class AppVersion
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // fall through
+            CrashLog.WriteDiagnostic("AppVersion.NormalizeVersionString", $"ignored: {ex.Message}"); // fall through
         }
 
         return false;

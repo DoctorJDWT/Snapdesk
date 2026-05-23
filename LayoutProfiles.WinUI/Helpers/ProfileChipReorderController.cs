@@ -335,9 +335,9 @@ internal sealed class ProfileChipReorderController
             {
                 _chipHost.ReleasePointerCapture(_activePointer);
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore
+                CrashLog.WriteDiagnostic("ProfileChipReorderController.ReleasePointerCapture", $"ignored: {ex.Message}"); // ignore
             }
         }
 
@@ -562,8 +562,9 @@ internal sealed class ProfileChipReorderController
             bounds = transform.TransformBounds(new Rect(0, 0, chip.ActualWidth, chip.ActualHeight));
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.WriteDiagnostic("ProfileChipReorderController.TryGetBounds", $"ignored: {ex.Message}"); // ignore
             return false;
         }
     }

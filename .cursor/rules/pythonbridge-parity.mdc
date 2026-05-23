@@ -1,0 +1,16 @@
+---
+description: PythonBridge args must match layout_manager.py CLI
+globs:
+  - LayoutProfiles.WinUI/Services/PythonBridge.cs
+  - src/layout_manager.py
+alwaysApply: false
+---
+When changing either file, verify subcommand parity:
+
+- save: save NAME [--window EXE|TITLE]...
+- restore: restore --profile-path PATH
+- update: update --profile-path PATH
+- edit: edit --profile-path PATH NEWNAME [--window EXE|TITLE]...
+- list-windows: list-windows (JSON array stdout)
+
+Run pytest after layout_manager changes.

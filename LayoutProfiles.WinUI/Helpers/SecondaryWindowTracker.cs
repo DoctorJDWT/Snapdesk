@@ -35,9 +35,9 @@ internal static class SecondaryWindowTracker
             {
                 window.Close();
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore close failures during shutdown
+                CrashLog.WriteDiagnostic("SecondaryWindowTracker.Close", $"ignored: {ex.Message}"); // ignore close failures during shutdown
             }
         }
     }

@@ -70,8 +70,9 @@ internal static class DockDisplayHelper
 
             return false;
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.WriteDiagnostic("DockDisplayHelper.TryResolveDockedDisplay", $"ignored: {ex.Message}"); // ignore
             return false;
         }
     }
@@ -94,9 +95,9 @@ internal static class DockDisplayHelper
             display = resolved;
             return true;
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("DockDisplayHelper.GetFromPoint", $"ignored: {ex.Message}"); // ignore
         }
 
         return false;

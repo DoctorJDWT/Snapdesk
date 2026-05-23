@@ -71,9 +71,9 @@ public sealed partial class ProfileDeleteWindow : Window
             var hwnd = WindowNative.GetWindowHandle(this);
             WindowChromeHelper.ApplyNonClientFrame(hwnd, AppTheme.IsDark);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("ProfileDeleteWindow.ApplyNonClientFrame", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -114,9 +114,9 @@ public sealed partial class ProfileDeleteWindow : Window
         {
             Close();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore double-close
+            CrashLog.WriteDiagnostic("ProfileDeleteWindow.Close", $"ignored: {ex.Message}"); // ignore double-close
         }
     }
 }

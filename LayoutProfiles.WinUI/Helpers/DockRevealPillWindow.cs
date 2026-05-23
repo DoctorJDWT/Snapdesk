@@ -128,9 +128,9 @@ internal sealed class DockRevealPillWindow : Window
             WindowChromeHelper.ApplyPillWindowRegion(hwnd, clientW, clientH);
             ApplyTopmostOverlay();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore placement failures
+            CrashLog.WriteDiagnostic("DockRevealPillWindow.ApplyTopmostOverlay", $"ignored: {ex.Message}"); // ignore placement failures
         }
     }
 
@@ -162,8 +162,9 @@ internal sealed class DockRevealPillWindow : Window
         {
             _mainWindowStart = _mainAppWindow!.Position;
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.WriteDiagnostic("DockRevealPillWindow.BeginTracking", $"ignored: {ex.Message}"); // ignore
             _mainWindowStart = new PointInt32(0, 0);
         }
 
@@ -225,9 +226,9 @@ internal sealed class DockRevealPillWindow : Window
             PlaceAtEdge(_edge, _dockedDisplay, main);
             _onMainWindowMoved?.Invoke();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("DockRevealPillWindow.Invoke", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -294,9 +295,9 @@ internal sealed class DockRevealPillWindow : Window
             WindowChromeHelper.ApplyPillWindowRegion(hwnd, w, h);
             ApplyTopmostOverlay();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("DockRevealPillWindow.ApplyTopmostOverlay", $"ignored: {ex.Message}"); // ignore
         }
     }
 

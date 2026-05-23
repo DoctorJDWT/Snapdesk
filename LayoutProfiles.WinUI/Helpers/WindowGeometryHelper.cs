@@ -69,8 +69,9 @@ public static class WindowGeometryHelper
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.WriteDiagnostic("WindowGeometryHelper.IntersectsAnyWorkArea", $"ignored: {ex.Message}"); // ignore
             return true;
         }
 

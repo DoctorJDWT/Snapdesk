@@ -42,8 +42,9 @@ internal sealed class DockRevealPillController
             _pillWindow.PlaceAtEdge(edge, dockedDisplay, _getAppWindow());
             Show();
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.WriteDiagnostic("DockRevealPillController.Update", $"ignored: {ex.Message}"); // ignore
             Hide();
         }
     }
@@ -60,9 +61,9 @@ internal sealed class DockRevealPillController
             GetPillAppWindow().Hide();
             _isShown = false;
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("DockRevealPillController.GetPillAppWindow", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -77,9 +78,9 @@ internal sealed class DockRevealPillController
         {
             _pillWindow.Close();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("DockRevealPillController.Close", $"ignored: {ex.Message}"); // ignore
         }
 
         _pillWindow = null;
@@ -99,9 +100,9 @@ internal sealed class DockRevealPillController
             GetPillAppWindow().Show(false);
             _isShown = true;
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("DockRevealPillController.GetPillAppWindow", $"ignored: {ex.Message}"); // ignore
         }
     }
 

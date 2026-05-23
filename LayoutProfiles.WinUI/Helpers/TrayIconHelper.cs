@@ -91,9 +91,9 @@ internal sealed class TrayIconHelper : IDisposable
             {
                 return new Icon(path);
             }
-            catch
+            catch (Exception ex)
             {
-                // try next path
+                CrashLog.WriteDiagnostic("TrayIconHelper.Icon", $"ignored: {ex.Message}"); // try next path
             }
         }
 
@@ -108,9 +108,9 @@ internal sealed class TrayIconHelper : IDisposable
                     return extracted;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // fall through
+                CrashLog.WriteDiagnostic("TrayIconHelper.ExtractAssociatedIcon", $"ignored: {ex.Message}"); // fall through
             }
         }
 

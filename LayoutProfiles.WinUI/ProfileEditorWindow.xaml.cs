@@ -49,8 +49,8 @@ public sealed partial class ProfileEditorWindow : Window
     private readonly string? _profilePath;
     private readonly int _predictedRestoreSlot;
     private readonly HotkeyBinding? _initialHotkey;
-    private readonly ProfileService _profiles = new();
-    private readonly PythonBridge _python = new();
+    private readonly ProfileService _profiles = ServiceLocator.Profiles;
+    private readonly PythonBridge _python = ServiceLocator.Python;
     private readonly List<WindowPickerItem> _pickerItems = new();
     private HashSet<string> _savedKeys = new(StringComparer.OrdinalIgnoreCase);
     private uint _hotkeyModifiers;
@@ -349,9 +349,9 @@ public sealed partial class ProfileEditorWindow : Window
             var hwnd = WindowNative.GetWindowHandle(this);
             WindowChromeHelper.ApplyNonClientFrame(hwnd, AppTheme.IsDark);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("ProfileEditorWindow.ApplyNonClientFrame", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -405,7 +405,7 @@ public sealed partial class ProfileEditorWindow : Window
 
         try
         {
-            var live = await Task.Run(() => _python.ListPickableWindowsAsync().GetAwaiter().GetResult());
+            var live = await Task.Run(async () => await _python.ListPickableWindowsAsync());
             var merged = new Dictionary<string, PickableWindow>(StringComparer.OrdinalIgnoreCase);
             foreach (var w in live)
             {
@@ -628,9 +628,9 @@ public sealed partial class ProfileEditorWindow : Window
         {
             Close();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore double-close
+            CrashLog.WriteDiagnostic("ProfileEditorWindow.Close", $"ignored: {ex.Message}"); // ignore double-close
         }
     }
 

@@ -67,9 +67,9 @@ internal sealed class WindowGeometryController
             {
                 _getAppWindow().Move(new PointInt32(x, y));
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore
+                CrashLog.WriteDiagnostic("WindowGeometryController._getAppWindow", $"ignored: {ex.Message}"); // ignore
             }
         }
         else
@@ -195,8 +195,9 @@ internal sealed class WindowGeometryController
             _lastSavedGeometry = SettingsService.FormatTkGeometry(w, h, x, y);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.WriteDiagnostic("WindowGeometryController.TryApplySavedGeometry", $"ignored: {ex.Message}"); // ignore
             return false;
         }
     }
@@ -209,9 +210,9 @@ internal sealed class WindowGeometryController
             var cache = _getSettingsCache();
             cache.Remove("window_geometry");
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("WindowGeometryController.Remove", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -221,9 +222,9 @@ internal sealed class WindowGeometryController
         {
             WindowGeometryHelper.CenterOnPrimaryWorkArea(_getAppWindow(), width, height);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("WindowGeometryController.CenterOnPrimaryWorkArea", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -248,9 +249,9 @@ internal sealed class WindowGeometryController
                 return true;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // fall through to Win32
+            CrashLog.WriteDiagnostic("WindowGeometryController._getAppWindow", $"ignored: {ex.Message}"); // fall through to Win32
         }
 
         try
@@ -265,9 +266,9 @@ internal sealed class WindowGeometryController
                 return true;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("WindowGeometryController.GetWindowHandle", $"ignored: {ex.Message}"); // ignore
         }
 
         return false;

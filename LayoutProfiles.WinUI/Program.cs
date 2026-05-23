@@ -68,9 +68,9 @@ public static class Program
             _singleInstanceMutex?.ReleaseMutex();
             _singleInstanceMutex?.Dispose();
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("Program.Dispose", $"ignored: {ex.Message}"); // ignore
         }
         finally
         {
@@ -92,9 +92,9 @@ public static class Program
         {
             StartupTrace.Write($"BuildUtc: {File.GetLastWriteTimeUtc(exePath):u}");
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("Program.Write", $"ignored: {ex.Message}"); // ignore
         }
     }
 }

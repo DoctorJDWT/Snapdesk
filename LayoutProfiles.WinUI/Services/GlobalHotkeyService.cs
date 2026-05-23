@@ -2,6 +2,8 @@ using System.Runtime.InteropServices;
 using LayoutProfiles.WinUI.Models;
 using Microsoft.UI.Dispatching;
 
+using LayoutProfiles.WinUI.Helpers;
+
 namespace LayoutProfiles.WinUI.Services;
 
 /// <summary>
@@ -220,9 +222,9 @@ public sealed class GlobalHotkeyService : IDisposable
                 GCHandle.FromIntPtr(userData).Free();
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("GlobalHotkeyService.FromIntPtr", $"ignored: {ex.Message}"); // ignore
         }
 
         NativeMethods.DestroyWindow(_hwnd);
@@ -264,9 +266,9 @@ public sealed class GlobalHotkeyService : IDisposable
                     service = instance;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore
+                CrashLog.WriteDiagnostic("GlobalHotkeyService.GetWindowLongPtr", $"ignored: {ex.Message}"); // ignore
             }
 
             service?.OnWmHotkey(hotkeyId);

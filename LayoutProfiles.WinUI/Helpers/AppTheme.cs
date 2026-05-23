@@ -38,6 +38,7 @@ internal static class AppTheme
     private static WidgetPalette _palette;
     private static UISettings? _uiSettings;
     private static bool _systemListenerAttached;
+    private static Microsoft.UI.Dispatching.DispatcherQueue? _uiDispatcher;
 
     public static ThemePreference Preference => _preference;
 
@@ -52,6 +53,7 @@ internal static class AppTheme
     public static void Initialize(ThemePreference preference)
     {
         _preference = preference;
+        _uiDispatcher ??= Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         EnsureSystemListener();
         ApplyResolved();
     }
@@ -122,9 +124,9 @@ internal static class AppTheme
                 return i == 0;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("AppTheme.GetValue", $"ignored: {ex.Message}"); // ignore
         }
 
         return true;
@@ -144,8 +146,22 @@ internal static class AppTheme
         }
 
         _palette = CreatePalette(dark);
-        SyncAppResources(_palette);
-        ResolvedThemeChanged?.Invoke();
+
+        // SyncAppResources and ResolvedThemeChanged must run on the UI thread.
+        // OnSystemColorValuesChanged fires on a background thread when system theme changes.
+        if (_uiDispatcher is not null && !_uiDispatcher.HasThreadAccess)
+        {
+            _uiDispatcher.TryEnqueue(() =>
+            {
+                SyncAppResources(_palette);
+                ResolvedThemeChanged?.Invoke();
+            });
+        }
+        else
+        {
+            SyncAppResources(_palette);
+            ResolvedThemeChanged?.Invoke();
+        }
     }
 
     private static WidgetPalette CreatePalette(bool dark)

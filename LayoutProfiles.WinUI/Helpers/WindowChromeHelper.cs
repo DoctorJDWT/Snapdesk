@@ -87,9 +87,9 @@ internal static class WindowChromeHelper
             titleBar.ButtonHoverForegroundColor = transparent;
             titleBar.ButtonPressedForegroundColor = transparent;
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore on older WinAppSDK / OS builds
+            CrashLog.WriteDiagnostic("WindowChromeHelper.ApplyBorderlessTitleBar", $"ignored: {ex.Message}"); // ignore on older WinAppSDK / OS builds
         }
     }
 
@@ -224,9 +224,9 @@ internal static class WindowChromeHelper
                 presenter.IsAlwaysOnTop = true;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore presenter configuration failures
+            CrashLog.WriteDiagnostic("WindowChromeHelper.PresentModal", $"ignored: {ex.Message}"); // ignore presenter configuration failures
         }
 
         void OnActivated(object sender, WindowActivatedEventArgs e)
@@ -254,9 +254,9 @@ internal static class WindowChromeHelper
                 presenter.IsAlwaysOnTop = false;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("WindowChromeHelper.ReleaseModal", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -269,9 +269,9 @@ internal static class WindowChromeHelper
             _ = BringWindowToTop(dialogHwnd);
             _ = SetForegroundWindow(dialogHwnd);
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore Win32 failures
+            CrashLog.WriteDiagnostic("WindowChromeHelper.SetForegroundWindow", $"ignored: {ex.Message}"); // ignore Win32 failures
         }
     }
 

@@ -7,10 +7,10 @@
     <AssemblyName>Snapdesk</AssemblyName>
     <Product>Snapdesk</Product>
     <AssemblyTitle>Snapdesk</AssemblyTitle>
-    <Version>1.0.31</Version>
-    <AssemblyVersion>1.0.31.0</AssemblyVersion>
-    <FileVersion>1.0.31.0</FileVersion>
-    <InformationalVersion>1.0.31</InformationalVersion>
+    <Version>1.0.32</Version>
+    <AssemblyVersion>1.0.32.0</AssemblyVersion>
+    <FileVersion>1.0.32.0</FileVersion>
+    <InformationalVersion>1.0.32</InformationalVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <UseAppHost>true</UseAppHost>
     <ApplicationManifest>app.manifest</ApplicationManifest>

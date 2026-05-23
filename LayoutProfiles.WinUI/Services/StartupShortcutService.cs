@@ -1,3 +1,5 @@
+using LayoutProfiles.WinUI.Helpers;
+
 namespace LayoutProfiles.WinUI.Services;
 
 public static class StartupShortcutService
@@ -86,9 +88,9 @@ public static class StartupShortcutService
 
             RemoveLegacyBat();
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("StartupShortcutService.RemoveLegacyBat", $"ignored: {ex.Message}"); // ignore
         }
     }
 
@@ -101,9 +103,9 @@ public static class StartupShortcutService
                 File.Delete(LegacyBatPath);
             }
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            // ignore
+            CrashLog.WriteDiagnostic("StartupShortcutService.Delete", $"ignored: {ex.Message}"); // ignore
         }
     }
 }

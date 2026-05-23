@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using LayoutProfiles.WinUI.Helpers;
 using LayoutProfiles.WinUI.Models;
 
 namespace LayoutProfiles.WinUI.Services;
@@ -53,18 +54,25 @@ public sealed class PythonBridge
         using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
+        var outputLock = new object();
         process.OutputDataReceived += (_, e) =>
         {
             if (e.Data is not null)
             {
-                stdout.AppendLine(e.Data);
+                lock (outputLock)
+                {
+                    stdout.AppendLine(e.Data);
+                }
             }
         };
         process.ErrorDataReceived += (_, e) =>
         {
             if (e.Data is not null)
             {
-                stderr.AppendLine(e.Data);
+                lock (outputLock)
+                {
+                    stderr.AppendLine(e.Data);
+                }
             }
         };
 
@@ -86,9 +94,9 @@ public sealed class PythonBridge
             {
                 process.Kill(entireProcessTree: true);
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore
+                CrashLog.WriteDiagnostic("PythonBridge.RunLayoutManagerAsync", $"ignored: {ex.Message}"); // ignore
             }
 
             throw;
